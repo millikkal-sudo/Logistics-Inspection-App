@@ -47,6 +47,29 @@ export type Driver = {
   active: boolean;
 };
 
+export type CauseCategory =
+  | 'supply'
+  | 'standards'
+  | 'wear'
+  | 'equipment'
+  | 'behaviour'
+  | 'other';
+
+/**
+ * A reason a check failed. The category is never shown to the inspector;
+ * it is what lets a report tell a stores problem from a training one.
+ */
+export type CheckCause = {
+  id: string;
+  checkItemId: string;
+  label: string;
+  category: CauseCategory;
+  sortOrder: number;
+  active: boolean;
+};
+
+export type TrainingFlag = 'none' | 'driver' | 'helper' | 'both';
+
 export type CheckItem = {
   id: string;
   code: string;
@@ -67,6 +90,8 @@ export type CheckAnswer = {
   note?: string;
   /** Storage key returned by uploadPhoto. Required whenever passed is false. */
   photoKey?: string;
+  /** Which cause was picked. Required whenever passed is false. */
+  causeId?: string;
 };
 
 export type InspectionSubmission = {
@@ -78,6 +103,8 @@ export type InspectionSubmission = {
   latitude?: number;
   longitude?: number;
   notes?: string;
+  /** The inspector's call on who needs training, if anyone. */
+  trainingFlag?: TrainingFlag;
   /** Set when this check corrects an earlier one. */
   supersedesId?: string;
 };
@@ -90,11 +117,14 @@ export type InspectionSummary = {
   driverName: string;
   inspectorName: string;
   helperName: string | null;
+  driverId: string;
+  helperId: string | null;
   status: InspectionStatus;
   dispatchBlocked: boolean;
   failedCount: number;
   tempReadingC: number | null;
   notes: string | null;
+  trainingFlag: TrainingFlag;
 };
 
 
