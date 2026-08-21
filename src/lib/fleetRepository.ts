@@ -1,5 +1,5 @@
 import { serviceClient } from './supabaseClients';
-import type { Area, Driver, Van } from './types';
+import type { Area, CauseCategory, CheckCause, Driver, Van } from './types';
 
 export type FleetEntry = {
   vanId: string;
@@ -168,4 +168,38 @@ export const describeInspection = async (
     areaName,
     driverName: (driver.data as { full_name?: string } | null)?.full_name ?? driverId,
   };
+};
+
+type CauseRow = {
+  id: string;
+  check_item_id: string;
+  label: string;
+  category: CauseCategory;
+  sort_order: number;
+  active: boolean;
+};
+
+export const listCauses = async (includeInactive = false): Promise<CheckCause[]> => {
+  let query = serviceClient()
+    .from('check_causes')
+    .select('id, check_item_id, label, category, sort_order, active')
+    .order('sort_order');
+
+  if (!includeInactive) {
+    query = query.eq('active', true);
+  }
+
+  const { data, error } = await query;
+  if (error !== null) {
+    throw new Error(`Could not load the cause options: ${error.message}`);
+  }
+
+  return (data ?? []).map((row: CauseRow) => ({
+    id: row.id,
+    checkItemId: row.check_item_id,
+    label: row.label,
+    category: row.category,
+    sortOrder: row.sort_order,
+    active: row.active,
+  }));
 };
