@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BulkImport } from './BulkImport';
 import { CaloMark } from './CaloMark';
 import { PlateScanner, type PlateReading } from './PlateScanner';
 import type { Area, Driver, InspectionStatus, Van } from '@/lib/types';
@@ -154,7 +155,14 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
         )}
 
         {tab === 'vans' && (
-          <VansTab vans={vans} areas={areas} busy={busy} areaName={areaName} onCall={call} />
+          <VansTab
+            vans={vans}
+            areas={areas}
+            busy={busy}
+            areaName={areaName}
+            onCall={call}
+            onRefresh={() => router.refresh()}
+          />
         )}
 
         {tab === 'drivers' && (
@@ -165,6 +173,7 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
             busy={busy}
             areaName={areaName}
             onCall={call}
+            onRefresh={() => router.refresh()}
           />
         )}
       </div>
@@ -864,12 +873,14 @@ const VansTab = ({
   busy,
   areaName,
   onCall,
+  onRefresh,
 }: {
   vans: Van[];
   areas: Area[];
   busy: boolean;
   areaName: (id: string | null) => string;
   onCall: CallFn;
+  onRefresh: () => void;
 }) => {
   const [plate, setPlate] = useState('');
   const [areaId, setAreaId] = useState(areas[0]?.id ?? '');
@@ -883,6 +894,8 @@ const VansTab = ({
 
   return (
     <div className="space-y-4">
+      <BulkImport entity="vans" onImported={onRefresh} />
+
       <Panel title="Add a van">
         <p className="mb-3 text-xs text-content-secondary">
           All vans run 0–5 °C. Scanning fills the plate in for you — check it before saving.
@@ -973,6 +986,7 @@ const DriversTab = ({
   busy,
   areaName,
   onCall,
+  onRefresh,
 }: {
   drivers: Driver[];
   vans: Van[];
@@ -980,6 +994,7 @@ const DriversTab = ({
   busy: boolean;
   areaName: (id: string | null) => string;
   onCall: CallFn;
+  onRefresh: () => void;
 }) => {
   const [staffRole, setStaffRole] = useState<'driver' | 'helper'>('driver');
   const [fullName, setFullName] = useState('');
@@ -1025,6 +1040,8 @@ const DriversTab = ({
 
   return (
     <div className="space-y-4">
+      <BulkImport entity="drivers" onImported={onRefresh} />
+
       <Panel title="Add a driver or helper">
         <div className="mb-3 flex gap-2">
           {(['driver', 'helper'] as const).map((role) => (
