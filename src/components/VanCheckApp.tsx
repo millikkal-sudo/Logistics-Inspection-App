@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import { CaloMark } from './CaloMark';
 import { uploadPhoto } from '@/lib/supabaseBrowser';
 import type { FleetEntry } from '@/lib/fleetRepository';
 import {
@@ -203,7 +204,7 @@ export const VanCheckApp = ({
 
   return (
     <div className="flex min-h-screen items-start justify-center px-3 py-6">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-steel shadow-2xl">
+      <div className="w-full max-w-md overflow-hidden rounded-lg bg-surface-page shadow-3">
         {screen === 'areas' && (
           <AreaList
             profile={profile}
@@ -299,24 +300,30 @@ const Header = ({
   sub: string;
   onBack?: () => void;
 }) => (
-  <header className="bg-fleet-dark px-5 pb-4 pt-5">
+  <header className="bg-brand-bold px-5 pb-5 pt-5">
+    <div className="mb-4 flex items-center justify-between">
+      <CaloMark invert />
+      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-content-invert/50">
+        Van check
+      </span>
+    </div>
     <div className="flex items-start gap-3">
       {onBack !== undefined && (
         <button
           type="button"
           onClick={onBack}
           aria-label="Go back"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-lg text-white"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-card/15 text-lg text-content-invert"
         >
           ←
         </button>
       )}
       <div className="min-w-0">
-        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-content-invert/60">
           {eyebrow}
         </div>
-        <h1 className="truncate text-xl font-bold leading-tight text-white">{title}</h1>
-        <div className="truncate text-xs text-white/70">{sub}</div>
+        <h1 className="truncate text-xl font-bold leading-tight text-content-invert">{title}</h1>
+        <div className="truncate text-xs text-content-invert/70">{sub}</div>
       </div>
     </div>
   </header>
@@ -366,24 +373,24 @@ const AreaList = ({
             type="button"
             onClick={() => onPick(area)}
             disabled={vansHere === 0}
-            className="flex w-full items-center gap-3 rounded-xl border border-line bg-white p-4 text-left active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
+            className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface-card p-4 text-left active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
           >
             <div
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white ${
-                allDone ? 'bg-pass' : 'bg-fleet'
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-content-invert ${
+                allDone ? 'bg-pass' : 'bg-brand'
               }`}
             >
               {area.code}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-bold text-ink">{area.name}</div>
-              <div className="text-xs text-sub">
+              <div className="text-sm font-bold text-content">{area.name}</div>
+              <div className="text-xs text-content-secondary">
                 {vansHere === 0
                   ? 'No vans assigned yet'
                   : `${doneHere} of ${vansHere} checked`}
               </div>
             </div>
-            {vansHere > 0 && <span className="text-lg text-fleet">›</span>}
+            {vansHere > 0 && <span className="text-lg text-brand">›</span>}
           </button>
         );
       })}
@@ -391,7 +398,7 @@ const AreaList = ({
       {canManage && (
         <a
           href="/admin"
-          className="block w-full rounded-xl border border-line bg-white py-3.5 text-center text-sm font-bold text-fleet"
+          className="block w-full rounded-xl border border-line bg-surface-card py-3.5 text-center text-sm font-bold text-brand"
         >
           Manager dashboard
         </a>
@@ -443,7 +450,7 @@ const VanList = ({
           onChange={(event) => onQuery(event.target.value)}
           placeholder="Plate or driver"
           aria-label="Search vans"
-          className="w-full rounded-xl border border-line bg-white px-3 py-2.5 text-sm text-ink outline-none"
+          className="w-full rounded-xl border border-line bg-surface-card px-3 py-2.5 text-sm text-content outline-none"
         />
 
         {visible.map((entry) => {
@@ -454,24 +461,24 @@ const VanList = ({
               type="button"
               onClick={() => onPick(entry)}
               disabled={done !== undefined}
-              className="flex w-full items-center gap-3 rounded-xl border border-line bg-white p-4 text-left active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100"
+              className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface-card p-4 text-left active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100"
             >
               <div
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white ${
-                  done === undefined ? 'bg-fleet' : 'bg-sub'
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-content-invert ${
+                  done === undefined ? 'bg-brand' : 'bg-sub'
                 }`}
               >
                 {entry.plate.slice(-4)}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-bold text-ink">{entry.plate}</div>
-                <div className="truncate text-xs text-sub">
+                <div className="text-sm font-bold text-content">{entry.plate}</div>
+                <div className="truncate text-xs text-content-secondary">
                   {entry.driverName}
                   {entry.helperName === null ? '' : ` + ${entry.helperName}`}
                 </div>
               </div>
               {done === undefined ? (
-                <span className="text-lg text-fleet">›</span>
+                <span className="text-lg text-brand">›</span>
               ) : (
                 <Chip status={done} />
               )}
@@ -480,7 +487,7 @@ const VanList = ({
         })}
 
         {visible.length === 0 && (
-          <p className="py-8 text-center text-sm text-sub">
+          <p className="py-8 text-center text-sm text-content-secondary">
             {fleet.length === 0
               ? `No vans with an assigned driver in ${area.name}. Add them in the manager dashboard.`
               : 'No van matches that. Check the plate and try again.'}
@@ -490,7 +497,7 @@ const VanList = ({
         <button
           type="button"
           onClick={onReport}
-          className="w-full rounded-xl border border-line bg-white py-3.5 text-sm font-bold text-fleet"
+          className="w-full rounded-xl border border-line bg-surface-card py-3.5 text-sm font-bold text-brand"
         >
           View morning report
         </button>
@@ -571,7 +578,7 @@ const Checklist = ({
       <div className="px-5 pt-4">
         <div className="h-1.5 overflow-hidden rounded-full bg-line">
           <div
-            className="h-full bg-fleet transition-all duration-300"
+            className="h-full bg-brand transition-all duration-300"
             style={{ width: `${(answeredCount / checkItems.length) * 100}%` }}
           />
         </div>
@@ -594,8 +601,8 @@ const Checklist = ({
                 : 'border-line';
 
           return (
-            <div key={item.code} className={`rounded-xl border-2 bg-white p-4 ${border}`}>
-              <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-ink">
+            <div key={item.code} className={`rounded-xl border-2 bg-surface-card p-4 ${border}`}>
+              <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-content">
                 {item.label}
                 {item.critical && (
                   <span className="rounded bg-hold-soft px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-hold">
@@ -603,18 +610,18 @@ const Checklist = ({
                   </span>
                 )}
               </div>
-              <div className="mt-0.5 text-xs text-sub">{item.helpText}</div>
+              <div className="mt-0.5 text-xs text-content-secondary">{item.helpText}</div>
 
               {item.inputType === 'temperature' ? (
                 <div className="mt-3">
                   <div
                     className={`rounded-lg py-4 text-center transition-colors ${
-                      tempValue === null ? 'bg-steel' : tempOk ? 'bg-pass-soft' : 'bg-fail-soft'
+                      tempValue === null ? 'bg-surface-page' : tempOk ? 'bg-pass-soft' : 'bg-fail-soft'
                     }`}
                   >
                     <div
                       className={`text-4xl font-bold tabular-nums ${
-                        tempValue === null ? 'text-sub' : tempOk ? 'text-pass' : 'text-fail'
+                        tempValue === null ? 'text-content-secondary' : tempOk ? 'text-pass' : 'text-fail'
                       }`}
                     >
                       {temp === '' ? '––' : temp}
@@ -622,14 +629,14 @@ const Checklist = ({
                     </div>
                     <div
                       className={`mt-1 text-[11px] font-bold ${
-                        tempValue === null ? 'text-sub' : tempOk ? 'text-pass' : 'text-fail'
+                        tempValue === null ? 'text-content-secondary' : tempOk ? 'text-pass' : 'text-fail'
                       }`}
                     >
                       {tempValue === null
                         ? 'Enter the reading'
                         : tempOk
                           ? 'Within range'
-                          : `Outside ${tempMin}–${tempMax} °C`}
+                          : `Outside ${tempMin} to ${tempMax} °C`}
                     </div>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2">
@@ -639,7 +646,7 @@ const Checklist = ({
                         type="button"
                         onClick={() => onKey(key)}
                         aria-label={key === 'del' ? 'Delete last digit' : key}
-                        className="rounded-lg bg-steel py-3.5 text-lg font-bold text-ink"
+                        className="rounded-lg bg-surface-page py-3.5 text-lg font-bold text-content"
                       >
                         {key === 'del' ? '⌫' : key}
                       </button>
@@ -659,7 +666,7 @@ const Checklist = ({
                       })
                     }
                     className={`flex-1 rounded-lg py-3 text-sm font-bold ${
-                      answer.passed === true ? 'bg-pass text-white' : 'bg-pass-soft text-pass'
+                      answer.passed === true ? 'bg-pass text-content-invert' : 'bg-pass-soft text-pass'
                     }`}
                   >
                     ✓ Pass
@@ -668,7 +675,7 @@ const Checklist = ({
                     type="button"
                     onClick={() => onPatch(item.code, { passed: false })}
                     className={`flex-1 rounded-lg py-3 text-sm font-bold ${
-                      answer.passed === false ? 'bg-fail text-white' : 'bg-fail-soft text-fail'
+                      answer.passed === false ? 'bg-fail text-content-invert' : 'bg-fail-soft text-fail'
                     }`}
                   >
                     ✗ Fail
@@ -689,9 +696,9 @@ const Checklist = ({
           );
         })}
 
-        <div className="rounded-xl border border-line bg-white p-4">
-          <div className="text-sm font-bold text-ink">Anything else to note?</div>
-          <div className="mt-0.5 text-xs text-sub">
+        <div className="rounded-xl border border-line bg-surface-card p-4">
+          <div className="text-sm font-bold text-content">Anything else to note?</div>
+          <div className="mt-0.5 text-xs text-content-secondary">
             Optional. Anything worth recording that the checks above do not cover.
           </div>
           <textarea
@@ -699,7 +706,7 @@ const Checklist = ({
             onChange={(event) => onNotes(event.target.value)}
             rows={3}
             placeholder="Observations, follow-ups, things to watch"
-            className="mt-3 w-full resize-none rounded-lg border border-line bg-steel p-3 text-sm text-ink outline-none"
+            className="mt-3 w-full resize-none rounded-lg border border-line bg-surface-page p-3 text-sm text-content outline-none"
           />
         </div>
 
@@ -707,7 +714,7 @@ const Checklist = ({
           type="button"
           onClick={onSubmit}
           disabled={!ready || saving}
-          className="w-full rounded-xl bg-fleet py-4 text-base font-bold text-white disabled:cursor-not-allowed disabled:bg-line disabled:text-sub"
+          className="w-full rounded-xl bg-brand py-4 text-base font-bold text-content-invert disabled:cursor-not-allowed disabled:bg-line disabled:text-content-secondary"
         >
           {label}
         </button>
@@ -781,7 +788,7 @@ const Evidence = ({
             className="h-36 w-full rounded-lg object-cover"
           />
           {answer.uploading === true && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-ink/60 text-sm font-bold text-white">
+            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-content-contrast/60 text-sm font-bold text-content-invert">
               Uploading…
             </div>
           )}
@@ -790,7 +797,7 @@ const Evidence = ({
               type="button"
               onClick={() => onPatch(code, { photoKey: undefined, photoPreview: undefined })}
               aria-label="Remove photo"
-              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-ink/70 text-white"
+              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-content-contrast/70 text-content-invert"
             >
               ✗
             </button>
@@ -803,7 +810,7 @@ const Evidence = ({
         onChange={(event) => onPatch(code, { note: event.target.value })}
         placeholder="What is wrong, and what did you do about it?"
         rows={2}
-        className="w-full resize-none rounded-lg border border-line bg-steel p-3 text-sm text-ink outline-none"
+        className="w-full resize-none rounded-lg border border-line bg-surface-page p-3 text-sm text-content outline-none"
       />
     </div>
   );
@@ -838,8 +845,8 @@ const OutcomeView = ({
   return (
     <div>
       <div className={`px-6 pb-8 pt-10 text-center ${meta.solid}`}>
-        <h1 className="text-2xl font-bold text-white">{title}</h1>
-        <p className="mx-auto mt-2 max-w-xs text-sm text-white/85">{line}</p>
+        <h1 className="text-2xl font-bold text-content-invert">{title}</h1>
+        <p className="mx-auto mt-2 max-w-xs text-sm text-content-invert/85">{line}</p>
       </div>
 
       <div className="space-y-3 p-4">
@@ -848,31 +855,31 @@ const OutcomeView = ({
             <div className="text-[11px] font-bold uppercase tracking-wide text-hold">
               Alert sent
             </div>
-            <div className="mt-1 text-sm text-ink">#uae-fleet-ops on Slack</div>
+            <div className="mt-1 text-sm text-content">#uae-fleet-ops on Slack</div>
           </div>
         )}
 
         {outcome.failedItems.length > 0 && (
-          <div className="overflow-hidden rounded-xl border border-line bg-white">
-            <div className="border-b border-line px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-sub">
+          <div className="overflow-hidden rounded-xl border border-line bg-surface-card">
+            <div className="border-b border-line px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-content-secondary">
               Failed items
             </div>
             {outcome.failedItems.map((item) => (
-              <div key={item} className="border-b border-line px-4 py-3 text-sm font-bold text-ink last:border-b-0">
+              <div key={item} className="border-b border-line px-4 py-3 text-sm font-bold text-content last:border-b-0">
                 {item}
               </div>
             ))}
           </div>
         )}
 
-        <div className="rounded-xl border border-line bg-white p-4 text-xs text-sub">
+        <div className="rounded-xl border border-line bg-surface-card p-4 text-xs text-content-secondary">
           Recorded {outcome.time} by {inspectorName}. Record locked — corrections need a new check.
         </div>
 
         <button
           type="button"
           onClick={onNext}
-          className="w-full rounded-xl bg-fleet py-4 text-base font-bold text-white"
+          className="w-full rounded-xl bg-brand py-4 text-base font-bold text-content-invert"
         >
           Next van
         </button>
@@ -972,9 +979,9 @@ const Report = ({
           ))}
         </div>
 
-        <div className="rounded-xl border border-line bg-white p-4">
+        <div className="rounded-xl border border-line bg-surface-card p-4">
           <div className="flex items-baseline justify-between">
-            <span className="text-xs font-bold uppercase tracking-wide text-sub">
+            <span className="text-xs font-bold uppercase tracking-wide text-content-secondary">
               Cleared first time
             </span>
             <span
@@ -988,10 +995,10 @@ const Report = ({
         </div>
 
         {records.length === 0 ? (
-          <p className="py-8 text-center text-sm text-sub">No checks recorded yet today.</p>
+          <p className="py-8 text-center text-sm text-content-secondary">No checks recorded yet today.</p>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-line bg-white">
-            <div className="border-b border-line px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-sub">
+          <div className="overflow-hidden rounded-xl border border-line bg-surface-card">
+            <div className="border-b border-line px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-content-secondary">
               Vans checked
             </div>
             {records.map((record) => (
@@ -1000,7 +1007,7 @@ const Report = ({
                 className="flex items-center justify-between gap-2 border-b border-line px-4 py-3 last:border-b-0"
               >
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-sm font-bold text-ink">
+                  <div className="flex items-center gap-2 text-sm font-bold text-content">
                     {record.plate}
                     {record.tempReadingC !== null && (
                       <span
@@ -1014,7 +1021,7 @@ const Report = ({
                       </span>
                     )}
                   </div>
-                  <div className="truncate text-xs text-sub">
+                  <div className="truncate text-xs text-content-secondary">
                     {record.areaName} · {record.driverName}
                   </div>
                 </div>
@@ -1025,9 +1032,9 @@ const Report = ({
         )}
 
         {area !== null && records.length > 0 && (
-          <div className="rounded-xl border border-line bg-white p-4">
-            <div className="text-sm font-bold text-ink">Send {area.name} report to Slack</div>
-            <div className="mt-0.5 text-xs text-sub">
+          <div className="rounded-xl border border-line bg-surface-card p-4">
+            <div className="text-sm font-bold text-content">Send {area.name} report to Slack</div>
+            <div className="mt-0.5 text-xs text-content-secondary">
               Compliance, gaps, and deviations by driver for the whole round.
             </div>
 
@@ -1037,7 +1044,7 @@ const Report = ({
               rows={2}
               placeholder="How did the round go? (optional)"
               disabled={sent}
-              className="mt-3 w-full resize-none rounded-lg border border-line bg-steel p-3 text-sm text-ink outline-none disabled:opacity-60"
+              className="mt-3 w-full resize-none rounded-lg border border-line bg-surface-page p-3 text-sm text-content outline-none disabled:opacity-60"
             />
 
             {sendError !== null && (
@@ -1050,13 +1057,13 @@ const Report = ({
               type="button"
               onClick={() => void sendToSlack()}
               disabled={sending || sent}
-              className="mt-3 w-full rounded-xl bg-fleet py-3.5 text-sm font-bold text-white disabled:bg-pass-soft disabled:text-pass"
+              className="mt-3 w-full rounded-xl bg-brand py-3.5 text-sm font-bold text-content-invert disabled:bg-pass-soft disabled:text-pass"
             >
               {sent ? 'Report sent' : sending ? 'Sending…' : 'Send report to Slack'}
             </button>
 
             {sent && (
-              <p className="mt-2 text-center text-xs text-sub">
+              <p className="mt-2 text-center text-xs text-content-secondary">
                 Posted to Slack with {photoCount} photo{photoCount === 1 ? '' : 's'}.
               </p>
             )}
@@ -1066,7 +1073,7 @@ const Report = ({
         <button
           type="button"
           onClick={onBack}
-          className="w-full rounded-xl bg-fleet py-4 text-base font-bold text-white"
+          className="w-full rounded-xl bg-brand py-4 text-base font-bold text-content-invert"
         >
           Back to vans
         </button>
