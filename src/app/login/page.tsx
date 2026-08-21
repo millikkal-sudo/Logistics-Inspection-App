@@ -149,7 +149,7 @@ const LoginForm = () => {
         type="button"
         onClick={() => void signIn()}
         disabled={busy}
-        className="mt-6 w-full rounded-xl bg-brand py-4 text-base font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
+        className="mt-6 w-full rounded-xl bg-brand-action py-4 text-base font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
       >
         {busy ? 'Signing in…' : 'Sign in'}
       </button>
