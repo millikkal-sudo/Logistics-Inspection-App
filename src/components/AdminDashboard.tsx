@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { BulkImport } from './BulkImport';
 import { CaloMark } from './CaloMark';
 import { PlateScanner, type PlateReading } from './PlateScanner';
-import type { Area, Driver, InspectionStatus, Van } from '@/lib/types';
+import type { Area, CheckCause, CheckItem, Driver, InspectionStatus, Van } from '@/lib/types';
 
-type Tab = 'reports' | 'areas' | 'vans' | 'drivers';
+type Tab = 'reports' | 'training' | 'areas' | 'vans' | 'drivers' | 'causes';
 
 type ReportRow = {
   id: string;
@@ -56,10 +56,19 @@ type Props = {
   areas: Area[];
   vans: Van[];
   drivers: Driver[];
+  causes: CheckCause[];
+  checkItems: CheckItem[];
   isAdmin: boolean;
 };
 
-export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
+export const AdminDashboard = ({
+  areas,
+  vans,
+  drivers,
+  causes,
+  checkItems,
+  isAdmin,
+}: Props) => {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('reports');
   const [busy, setBusy] = useState(false);
@@ -118,7 +127,7 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
         </div>
 
         <nav className="mt-4 flex gap-1 overflow-x-auto">
-          {(['reports', 'areas', 'vans', 'drivers'] as Tab[]).map((key) => (
+          {(['reports', 'training', 'areas', 'vans', 'drivers', 'causes'] as Tab[]).map((key) => (
             <button
               key={key}
               type="button"
@@ -149,6 +158,17 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
         )}
 
         {tab === 'reports' && <Reports areas={areas} />}
+
+        {tab === 'training' && <TrainingTab areas={areas} />}
+
+        {tab === 'causes' && (
+          <CausesTab
+            causes={causes}
+            checkItems={checkItems}
+            busy={busy}
+            onCall={call}
+          />
+        )}
 
         {tab === 'areas' && (
           <AreasTab areas={areas} busy={busy} isAdmin={isAdmin} onCall={call} />
@@ -196,7 +216,33 @@ type Stats = {
   worstTempC: number | null;
 };
 
-type ReportPayload = { records: ReportRow[]; stats: Stats; previous: Stats };
+type DefectCount = { checkLabel: string; causeLabel: string; category: string; count: number };
+type QueueEntry = {
+  personId: string;
+  personName: string;
+  role: 'driver' | 'helper';
+  trainableCount: number;
+  nonTrainableCount: number;
+  flaggedCount: number;
+  causes: string[];
+  priority: 'session' | 'watch';
+  reason: string;
+};
+type SystemicIssue = {
+  checkLabel: string;
+  causeLabel: string;
+  peopleAffected: number;
+  count: number;
+  reason: string;
+};
+type Insight = { defects: DefectCount[]; queue: QueueEntry[]; systemic: SystemicIssue[] };
+
+type ReportPayload = {
+  records: ReportRow[];
+  stats: Stats;
+  previous: Stats;
+  insight: Insight;
+};
 
 type PresetKey = 'today' | 'week' | 'last7' | 'month' | 'lastMonth' | 'custom';
 
@@ -769,6 +815,316 @@ const ActiveToggle = ({
       >
         Delete
       </button>
+    </div>
+  );
+};
+
+/* ------------------------------ training ------------------------------ */
+
+const CATEGORY_LABELS: Record<string, string> = {
+  supply: 'Supply',
+  standards: 'Standards',
+  wear: 'Wear',
+  equipment: 'Equipment',
+  behaviour: 'Behaviour',
+  other: 'Other',
+};
+
+/**
+ * The training view. Ranked by why things failed, not how often, because
+ * seven uniform failures that are all missing shoes is a purchase order,
+ * not a training session.
+ */
+const TrainingTab = ({ areas }: { areas: Area[] }) => {
+  const [days, setDays] = useState(30);
+  const [areaId, setAreaId] = useState('');
+  const [insight, setInsight] = useState<Insight | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    try {
+      const to = new Date();
+      const from = new Date(Date.now() - days * 86_400_000);
+      const search = new URLSearchParams({
+        from: from.toISOString().slice(0, 10),
+        to: to.toISOString().slice(0, 10),
+      });
+      if (areaId !== '') {
+        search.set('areaId', areaId);
+      }
+      const response = await fetch(`/api/reports?${search.toString()}`);
+      if (response.ok) {
+        const payload = (await response.json()) as ReportPayload;
+        setInsight(payload.insight);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [days, areaId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3 rounded-md border border-line bg-surface-card p-4">
+        <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
+          Window
+          <select
+            value={days}
+            onChange={(event) => setDays(Number(event.target.value))}
+            className="mt-1 block rounded-sm border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
+          >
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+          </select>
+        </label>
+
+        <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
+          Area
+          <select
+            value={areaId}
+            onChange={(event) => setAreaId(event.target.value)}
+            className="mt-1 block rounded-sm border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
+          >
+            <option value="">All areas</option>
+            {areas.map((area) => (
+              <option key={area.id} value={area.id}>
+                {area.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <span className="text-xs text-content-secondary">{loading ? 'Loading…' : ''}</span>
+      </div>
+
+      {insight !== null && insight.systemic.length > 0 && (
+        <div className="rounded-md border border-line bg-hold-soft p-4">
+          <div className="text-sm font-bold text-hold">Not a training problem</div>
+          <p className="mt-0.5 text-xs text-content-secondary">
+            These affect several people and share a cause training cannot change.
+          </p>
+          <div className="mt-3 space-y-2">
+            {insight.systemic.map((issue) => (
+              <div
+                key={`${issue.checkLabel}-${issue.causeLabel}`}
+                className="rounded-sm bg-surface-card p-3"
+              >
+                <div className="text-sm font-bold text-content">
+                  {issue.checkLabel}: {issue.causeLabel}
+                </div>
+                <div className="mt-0.5 text-xs text-content-secondary">
+                  {issue.count} time{issue.count === 1 ? '' : 's'} across {issue.peopleAffected}{' '}
+                  people. {issue.reason}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-md border border-line bg-surface-card">
+        <div className="border-b border-line px-4 py-3">
+          <div className="text-sm font-bold text-content">Training queue</div>
+          <p className="mt-0.5 text-xs text-content-secondary">
+            Only failures a session could actually change.
+          </p>
+        </div>
+
+        {insight === null || insight.queue.length === 0 ? (
+          <p className="p-8 text-center text-sm text-content-secondary">
+            Nobody needs a session in this window.
+          </p>
+        ) : (
+          insight.queue.map((entry) => (
+            <div
+              key={entry.personId}
+              className="flex items-start gap-3 border-b border-line px-4 py-3 last:border-b-0"
+            >
+              <span
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                  entry.priority === 'session' ? 'bg-fail-soft text-fail' : 'bg-hold-soft text-hold'
+                }`}
+              >
+                {entry.priority === 'session' ? 'Session' : 'Watch'}
+              </span>
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-content">
+                  {entry.personName}{' '}
+                  <span className="text-xs font-normal text-content-secondary">{entry.role}</span>
+                </div>
+                <div className="mt-0.5 text-xs text-content-secondary">{entry.reason}</div>
+                <div className="mt-1 text-xs text-content-secondary">
+                  {entry.causes.join(', ')}
+                  {entry.nonTrainableCount > 0 &&
+                    ` · ${entry.nonTrainableCount} supply or equipment failure${entry.nonTrainableCount === 1 ? '' : 's'} excluded`}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded-md border border-line bg-surface-card">
+        <div className="border-b border-line px-4 py-3 text-sm font-bold text-content">
+          Defects by cause
+        </div>
+        {insight === null || insight.defects.length === 0 ? (
+          <p className="p-8 text-center text-sm text-content-secondary">No failures recorded.</p>
+        ) : (
+          insight.defects.map((defect) => (
+            <div
+              key={`${defect.checkLabel}-${defect.causeLabel}`}
+              className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 last:border-b-0"
+            >
+              <div className="min-w-0 text-sm">
+                <span className="font-bold text-content">{defect.causeLabel}</span>{' '}
+                <span className="text-xs text-content-secondary">{defect.checkLabel}</span>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <span className="rounded-full bg-surface-page px-2.5 py-1 text-[11px] font-bold text-content-secondary">
+                  {CATEGORY_LABELS[defect.category] ?? defect.category}
+                </span>
+                <span className="w-6 text-right text-sm font-bold text-content">
+                  {defect.count}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* ------------------------------- causes ------------------------------- */
+
+const CATEGORY_OPTIONS = ['supply', 'standards', 'wear', 'equipment', 'behaviour', 'other'];
+
+const CausesTab = ({
+  causes,
+  checkItems,
+  busy,
+  onCall,
+}: {
+  causes: CheckCause[];
+  checkItems: CheckItem[];
+  busy: boolean;
+  onCall: CallFn;
+}) => {
+  const [checkItemId, setCheckItemId] = useState(checkItems[0]?.id ?? '');
+  const [label, setLabel] = useState('');
+  const [category, setCategory] = useState('standards');
+
+  const add = async (): Promise<void> => {
+    const siblings = causes.filter((cause) => cause.checkItemId === checkItemId);
+    const ok = await onCall('/api/admin/causes', 'POST', {
+      checkItemId,
+      label,
+      category,
+      sortOrder: siblings.length + 1,
+    });
+    if (ok) {
+      setLabel('');
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Panel title="Add a cause">
+        <p className="mb-3 text-xs text-content-secondary">
+          These are the options an inspector taps when a check fails. The category is never shown
+          to them: it is what lets a report tell a stores problem from a training one.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Check">
+            <select
+              value={checkItemId}
+              onChange={(event) => setCheckItemId(event.target.value)}
+              className={inputClass}
+            >
+              {checkItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Cause">
+            <input
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              placeholder="Missing gloves"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Category">
+            <select
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              className={inputClass}
+            >
+              {CATEGORY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {CATEGORY_LABELS[option] ?? option}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <button
+            type="button"
+            onClick={() => void add()}
+            disabled={busy}
+            className="rounded-sm bg-brand-action px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-disabled disabled:text-content-secondary"
+          >
+            Add
+          </button>
+        </div>
+      </Panel>
+
+      {checkItems.map((item) => {
+        const forItem = causes.filter((cause) => cause.checkItemId === item.id);
+        if (forItem.length === 0) {
+          return null;
+        }
+        return (
+          <div key={item.id} className="overflow-hidden rounded-md border border-line bg-surface-card">
+            <div className="border-b border-line px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-content-secondary">
+              {item.label}
+            </div>
+            {forItem.map((cause) => (
+              <div
+                key={cause.id}
+                className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <span className="text-sm font-bold text-content">{cause.label}</span>
+                  <span className="ml-2 rounded-full bg-surface-page px-2 py-0.5 text-[10px] font-bold text-content-secondary">
+                    {CATEGORY_LABELS[cause.category] ?? cause.category}
+                  </span>
+                  {!cause.active && (
+                    <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-content-secondary">
+                      INACTIVE
+                    </span>
+                  )}
+                </div>
+                <ActiveToggle
+                  entity="causes"
+                  id={cause.id}
+                  label={cause.label}
+                  active={cause.active}
+                  busy={busy}
+                  onCall={onCall}
+                />
+              </div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 };
