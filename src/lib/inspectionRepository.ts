@@ -66,6 +66,9 @@ const assertEvidenceComplete = (submission: InspectionSubmission): void => {
     if (answer.photoKey === undefined || answer.photoKey === '') {
       throw new ValidationError(`${answer.checkItemCode} failed without a photo`);
     }
+    if (answer.causeId === undefined || answer.causeId === '') {
+      throw new ValidationError(`${answer.checkItemCode} failed without a cause`);
+    }
   }
 };
 
@@ -103,6 +106,7 @@ export const submitInspection = async (
       van_id: submission.vanId,
       driver_id: submission.driverId,
       helper_id: submission.helperId ?? null,
+      training_flag: submission.trainingFlag ?? 'none',
       area_id: submission.areaId ?? null,
       inspector_id: inspector.id,
       status,
@@ -130,6 +134,7 @@ export const submitInspection = async (
       passed: answer.passed,
       numeric_value: answer.numericValue ?? null,
       note: answer.note ?? null,
+      cause_id: answer.causeId ?? null,
     };
   });
 
@@ -182,9 +187,12 @@ type SummaryRow = {
   area_name: string;
   area_id: string | null;
   driver_name: string;
+  driver_id: string;
   helper_name: string | null;
+  helper_id: string | null;
   inspector_name: string;
   notes: string | null;
+  training_flag: 'none' | 'driver' | 'helper' | 'both';
   status: InspectionStatus;
   dispatch_blocked: boolean;
   failed_count: number;
@@ -220,9 +228,12 @@ export const listInspectionsSince = async (
     plate: row.plate,
     areaName: row.area_name,
     driverName: row.driver_name,
+    driverId: row.driver_id,
     helperName: row.helper_name,
+    helperId: row.helper_id,
     inspectorName: row.inspector_name,
     notes: row.notes,
+    trainingFlag: row.training_flag,
     status: row.status,
     dispatchBlocked: row.dispatch_blocked,
     failedCount: row.failed_count,
@@ -238,6 +249,7 @@ export type InspectionResultDetail = {
   passed: boolean;
   numericValue: number | null;
   note: string | null;
+  causeLabel: string | null;
   /** Signed, short-lived. The bucket is private. */
   photoUrls: string[];
   /** Raw storage keys, for server-side use such as embedding into a PDF. */
@@ -255,6 +267,7 @@ export type InspectionDetail = {
   status: InspectionStatus;
   dispatchBlocked: boolean;
   notes: string | null;
+  trainingFlag: string;
   failures: InspectionResultDetail[];
   passedCount: number;
 };
@@ -266,6 +279,7 @@ type ResultDetailRow = {
   numeric_value: number | null;
   note: string | null;
   check_items: { label: string; critical: boolean } | { label: string; critical: boolean }[] | null;
+  check_causes: { label: string } | { label: string }[] | null;
   inspection_photos: { storage_key: string }[] | null;
 };
 
@@ -298,7 +312,9 @@ export const getInspectionDetail = async (id: string): Promise<InspectionDetail 
 
   const { data: results, error: resultsError } = await db
     .from('inspection_results')
-    .select('passed, numeric_value, note, check_items(label, critical), inspection_photos(storage_key)')
+    .select(
+      'passed, numeric_value, note, check_items(label, critical), check_causes(label), inspection_photos(storage_key)',
+    )
     .eq('inspection_id', id);
 
   if (resultsError !== null) {
@@ -334,6 +350,7 @@ export const getInspectionDetail = async (id: string): Promise<InspectionDetail 
       passed: false,
       numericValue: row.numeric_value === null ? null : Number(row.numeric_value),
       note: row.note,
+      causeLabel: firstOf(row.check_causes)?.label ?? null,
       photoUrls,
       photoKeys: keys,
     });
@@ -352,6 +369,7 @@ export const getInspectionDetail = async (id: string): Promise<InspectionDetail 
     status: record.status,
     dispatchBlocked: record.dispatch_blocked,
     notes: record.notes,
+    trainingFlag: record.training_flag,
     failures,
     passedCount,
   };
