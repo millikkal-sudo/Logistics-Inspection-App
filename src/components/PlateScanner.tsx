@@ -82,12 +82,12 @@ export const PlateScanner = ({ onDetected }: Props) => {
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={busy}
-        className="rounded-lg border border-line bg-white px-4 py-2.5 text-sm font-bold text-fleet disabled:opacity-60"
+        className="rounded-lg border border-line bg-surface-card px-4 py-2.5 text-sm font-bold text-brand disabled:opacity-60"
       >
         {busy ? 'Reading…' : 'Scan plate'}
       </button>
 
-      {status !== null && <p className="mt-2 text-xs text-sub">{status}</p>}
+      {status !== null && <p className="mt-2 text-xs text-content-secondary">{status}</p>}
     </div>
   );
 };
