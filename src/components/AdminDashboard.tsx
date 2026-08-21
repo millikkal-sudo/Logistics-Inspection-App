@@ -70,7 +70,7 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
       const response = await fetch(path, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       if (!response.ok) {
         const payload: unknown = await response.json();
@@ -130,8 +130,16 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
 
       <div className="p-4 sm:p-6">
         {error !== null && (
-          <div className="mb-4 rounded-lg bg-fail-soft p-3 text-sm font-medium text-fail">
-            {error}
+          <div className="mb-4 flex items-start justify-between gap-3 rounded-lg bg-fail-soft p-4">
+            <p className="text-sm font-medium leading-relaxed text-fail">{error}</p>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              aria-label="Dismiss"
+              className="shrink-0 text-fail"
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -475,30 +483,78 @@ const Panel = ({ title, children }: { title: string; children: React.ReactNode }
   </div>
 );
 
+/**
+ * Deactivate is always available. Delete is offered too, but the server
+ * refuses it for anything named on a filed inspection — deleting that
+ * would take the audit trail with it.
+ */
 const ActiveToggle = ({
   entity,
   id,
+  label,
   active,
   busy,
   onCall,
 }: {
   entity: string;
   id: string;
+  label: string;
   active: boolean;
   busy: boolean;
   onCall: CallFn;
-}) => (
-  <button
-    type="button"
-    disabled={busy}
-    onClick={() => void onCall(`/api/admin/${entity}`, 'PATCH', { id, active: !active })}
-    className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
-      active ? 'bg-fail-soft text-fail' : 'bg-pass-soft text-pass'
-    }`}
-  >
-    {active ? 'Deactivate' : 'Reactivate'}
-  </button>
-);
+}) => {
+  const [confirming, setConfirming] = useState(false);
+
+  if (confirming) {
+    return (
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="text-xs text-sub">Delete permanently?</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setConfirming(false);
+            void onCall(`/api/admin/${entity}?id=${id}`, 'DELETE', undefined);
+          }}
+          className="rounded-lg bg-fail px-3 py-1.5 text-xs font-bold text-white"
+        >
+          Delete
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          className="rounded-lg bg-steel px-3 py-1.5 text-xs font-bold text-sub"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void onCall(`/api/admin/${entity}`, 'PATCH', { id, active: !active })}
+        className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
+          active ? 'bg-hold-soft text-hold' : 'bg-pass-soft text-pass'
+        }`}
+      >
+        {active ? 'Deactivate' : 'Reactivate'}
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        aria-label={`Delete ${label}`}
+        onClick={() => setConfirming(true)}
+        className="rounded-lg border border-line px-3 py-1.5 text-xs font-bold text-fail"
+      >
+        Delete
+      </button>
+    </div>
+  );
+};
 
 /* -------------------------------- areas -------------------------------- */
 
@@ -580,6 +636,7 @@ const AreasTab = ({
             <ActiveToggle
               entity="areas"
               id={area.id}
+              label={area.name}
               active={area.active}
               busy={busy}
               onCall={onCall}
@@ -676,6 +733,7 @@ const VansTab = ({
             <ActiveToggle
               entity="vans"
               id={van.id}
+              label={van.plate}
               active={van.active}
               busy={busy}
               onCall={onCall}
@@ -889,6 +947,7 @@ const DriversTab = ({
               <ActiveToggle
                 entity="drivers"
                 id={person.id}
+                label={person.fullName}
                 active={person.active}
                 busy={busy}
                 onCall={onCall}
