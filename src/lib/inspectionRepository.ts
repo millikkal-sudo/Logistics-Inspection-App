@@ -55,7 +55,10 @@ export class ValidationError extends Error {}
  * assertion. Rejected here as well as in the UI, because the UI is not a
  * security boundary.
  */
-const assertEvidenceComplete = (submission: InspectionSubmission): void => {
+const assertEvidenceComplete = (
+  submission: InspectionSubmission,
+  causeRequiredFor: Set<string>,
+): void => {
   for (const answer of submission.answers) {
     if (answer.passed) {
       continue;
@@ -66,9 +69,7 @@ const assertEvidenceComplete = (submission: InspectionSubmission): void => {
     if (answer.photoKey === undefined || answer.photoKey === '') {
       throw new ValidationError(`${answer.checkItemCode} failed without a photo`);
     }
-    if (answer.causeId === undefined || answer.causeId === '') {
-      throw new ValidationError(`${answer.checkItemCode} failed without a cause`);
-    }
+
   }
 };
 
@@ -82,9 +83,21 @@ export const submitInspection = async (
   submission: InspectionSubmission,
   inspector: Profile,
 ): Promise<SubmitResult> => {
-  assertEvidenceComplete(submission);
-
   const checkItems = await listCheckItems();
+
+  const { data: causeRows } = await serviceClient()
+    .from('check_causes')
+    .select('check_item_id')
+    .eq('active', true);
+
+  const itemsWithCauses = new Set(
+    (causeRows ?? []).map((row: { check_item_id: string }) => row.check_item_id),
+  );
+  const codesWithCauses = new Set(
+    checkItems.filter((item) => itemsWithCauses.has(item.id)).map((item) => item.code),
+  );
+
+  assertEvidenceComplete(submission, codesWithCauses);
   const itemsByCode = new Map(checkItems.map((item) => [item.code, item]));
 
   const missing = checkItems.filter(
