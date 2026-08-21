@@ -36,6 +36,7 @@ type Evidence = {
   plate: string;
   driverName: string;
   checkLabel: string;
+  causeLabel: string | null;
   note: string | null;
   url: string;
 };
@@ -63,7 +64,15 @@ type FailureRow = {
   inspection_id: string;
   note: string | null;
   check_items: { label: string } | { label: string }[] | null;
+  check_causes: { label: string } | { label: string }[] | null;
   inspection_photos: { storage_key: string }[] | null;
+};
+
+const causeOf = (relation: FailureRow['check_causes']): string | null => {
+  if (relation === null) {
+    return null;
+  }
+  return Array.isArray(relation) ? (relation[0]?.label ?? null) : relation.label;
 };
 
 const labelOf = (relation: FailureRow['check_items']): string => {
@@ -77,23 +86,27 @@ const gather = async (
   records: InspectionSummary[],
 ): Promise<{
   byCheck: Map<string, number>;
+  byCause: Map<string, Map<string, number>>;
   byDriver: Map<string, Deviation>;
   evidence: Evidence[];
   failureCount: number;
 }> => {
   const byCheck = new Map<string, number>();
+  const byCause = new Map<string, Map<string, number>>();
   const byDriver = new Map<string, Deviation>();
   const evidence: Evidence[] = [];
 
   const ids = records.filter((record) => record.failedCount > 0).map((record) => record.id);
   if (ids.length === 0) {
-    return { byCheck, byDriver, evidence, failureCount: 0 };
+    return { byCheck, byCause, byDriver, evidence, failureCount: 0 };
   }
 
   const db = serviceClient();
   const { data } = await db
     .from('inspection_results')
-    .select('inspection_id, note, check_items(label), inspection_photos(storage_key)')
+    .select(
+      'inspection_id, note, check_items(label), check_causes(label), inspection_photos(storage_key)',
+    )
     .in('inspection_id', ids)
     .eq('passed', false);
 
@@ -102,6 +115,15 @@ const gather = async (
   for (const raw of rows) {
     const label = labelOf(raw.check_items);
     byCheck.set(label, (byCheck.get(label) ?? 0) + 1);
+
+    // The cause is what turns a number into an instruction. "Uniform, 3
+    // vans" is a statistic; "2 missing shoes, 1 torn t-shirt" is a job.
+    const cause = causeOf(raw.check_causes);
+    if (cause !== null) {
+      const forCheck = byCause.get(label) ?? new Map<string, number>();
+      forCheck.set(cause, (forCheck.get(cause) ?? 0) + 1);
+      byCause.set(label, forCheck);
+    }
 
     const record = records.find((candidate) => candidate.id === raw.inspection_id);
     if (record === undefined) {
@@ -127,6 +149,7 @@ const gather = async (
           plate: record.plate,
           driverName: record.driverName,
           checkLabel: label,
+          causeLabel: cause,
           note: raw.note,
           url: signed.signedUrl,
         });
@@ -134,7 +157,7 @@ const gather = async (
     }
   }
 
-  return { byCheck, byDriver, evidence, failureCount: rows.length };
+  return { byCheck, byCause, byDriver, evidence, failureCount: rows.length };
 };
 
 /**
@@ -229,7 +252,7 @@ export const buildAreaReport = async (
     return { text, messages: [{ text, blocks: [section(text)] }], photoCount: 0 };
   }
 
-  const { byCheck, byDriver, evidence, failureCount } = await gather(records);
+  const { byCheck, byCause, byDriver, evidence, failureCount } = await gather(records);
 
   const cleared = records.filter((record) => record.status === 'compliant').length;
   const held = records.filter((record) => record.dispatchBlocked).length;
@@ -314,7 +337,18 @@ export const buildAreaReport = async (
     lines.push('');
     for (const record of records.filter((candidate) => candidate.failedCount > 0)) {
       const deviation = byDriver.get(record.driverName);
-      const checks = deviation === undefined ? '' : [...new Set(deviation.items)].join(', ');
+      const checks =
+        deviation === undefined
+          ? ''
+          : [...new Set(deviation.items)]
+              .map((item) => {
+                const breakdown = byCause.get(item);
+                if (breakdown === undefined) {
+                  return item;
+                }
+                return `${item} (${[...breakdown.keys()].join(', ').toLowerCase()})`;
+              })
+              .join(', ');
       lines.push(
         record.dispatchBlocked
           ? `*${record.plate} held.* ${checks}, ${record.driverName}. Must not dispatch until re-checked.`
@@ -330,9 +364,17 @@ export const buildAreaReport = async (
       );
     }
 
-    const topChecks = [...byCheck.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, count]) => `• ${label}, ${plural(count, 'van')}`);
+    const topChecks = [...byCheck.entries()].sort((a, b) => b[1] - a[1]).map(([label, count]) => {
+      const breakdown = byCause.get(label);
+      const detail =
+        breakdown === undefined
+          ? ''
+          : ` (${[...breakdown.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([cause, n]) => `${n} ${cause.toLowerCase()}`)
+              .join(', ')})`;
+      return `• ${label}, ${plural(count, 'van')}${detail}`;
+    });
     if (topChecks.length > 0) {
       lines.push('', '*Main gaps*', ...topChecks);
     }
@@ -343,6 +385,23 @@ export const buildAreaReport = async (
     if (deviations.length > 0) {
       lines.push('', '*Deviations by driver*', ...deviations);
     }
+  }
+
+  const flagged = records.filter((record) => record.trainingFlag !== 'none');
+  if (flagged.length > 0) {
+    lines.push(
+      '',
+      '*Flagged for training*',
+      ...flagged.map((record) => {
+        const who =
+          record.trainingFlag === 'both'
+            ? `${record.driverName} and ${record.helperName ?? 'helper'}`
+            : record.trainingFlag === 'helper'
+              ? (record.helperName ?? 'helper')
+              : record.driverName;
+        return `• ${who} (${record.plate})`;
+      }),
+    );
   }
 
   // Always included when written, whichever shape the report takes.
@@ -362,9 +421,9 @@ export const buildAreaReport = async (
       elements: [
         {
           type: 'mrkdwn' as const,
-          text: `*${item.plate}* · ${item.checkLabel} · ${item.driverName}${
-            item.note === null || item.note === '' ? '' : ` · ${item.note}`
-          }`,
+          text: `*${item.plate}* · ${item.checkLabel}${
+            item.causeLabel === null ? '' : `: ${item.causeLabel}`
+          } · ${item.driverName}${item.note === null || item.note === '' ? '' : ` · ${item.note}`}`,
         },
       ],
     },
