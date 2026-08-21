@@ -1,16 +1,15 @@
 import { serviceClient } from './supabaseClients';
-import { listInspectionsSince } from './inspectionRepository';
+import { getReportStats, listInspectionsSince } from './inspectionRepository';
 import type { InspectionSummary, Profile } from './types';
 
 /**
- * The end-of-round report a supervisor sends to Slack after working an
- * area. Replaces the per-van alert: the inspector is standing at the van
- * and holds it themselves, so the channel wants the round, not a
- * running commentary.
+ * The end-of-round report a supervisor sends to Slack.
  *
- * Every photo the inspector attached is posted inline. Slack fetches
- * each signed URL when the message lands and caches the image on its
- * own servers, so the pictures survive the link expiring.
+ * One builder, three shapes, chosen by what actually happened rather
+ * than by the sender. A clean round gets four lines. A round with one
+ * failure collapses the breakdown, because "vans held", "main gaps" and
+ * "deviations by driver" would each repeat the same fact. Three or more
+ * failures and the sections start earning their space.
  */
 
 const BUCKET = 'inspection-photos';
@@ -19,10 +18,18 @@ const SIGNED_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** Slack caps a message at 50 blocks. Leave room for the summary. */
 const MAX_IMAGE_BLOCKS_PER_MESSAGE = 40;
 
+/** Below this, the breakdown sections say the same thing three times. */
+const FAILURE_DETAIL_THRESHOLD = 3;
+
+/** Every van runs 0 to 5 degrees. */
+const TEMP_MAX_C = 5;
+
 export type AreaReportInput = {
   areaId: string;
   areaName: string;
   note?: string;
+  /** Origin of the deployment, so the report can link back to the record. */
+  origin?: string;
 };
 
 type Evidence = {
@@ -39,12 +46,18 @@ type SlackBlock =
   | { type: 'section'; text: { type: 'mrkdwn'; text: string } }
   | { type: 'divider' }
   | { type: 'context'; elements: { type: 'mrkdwn'; text: string }[] }
-  | { type: 'image'; image_url: string; alt_text: string; title?: { type: 'plain_text'; text: string } };
+  | { type: 'image'; image_url: string; alt_text: string };
 
-const percentage = (part: number, whole: number): number =>
-  whole === 0 ? 0 : Math.round((part / whole) * 100);
+const section = (text: string): SlackBlock => ({
+  type: 'section',
+  text: { type: 'mrkdwn', text },
+});
 
-const pluralVans = (count: number): string => `${count} van${count === 1 ? '' : 's'}`;
+const plural = (count: number, word: string): string =>
+  `${count} ${word}${count === 1 ? '' : 's'}`;
+
+const timeOf = (iso: string): string =>
+  new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
 type FailureRow = {
   inspection_id: string;
@@ -60,17 +73,13 @@ const labelOf = (relation: FailureRow['check_items']): string => {
   return Array.isArray(relation) ? (relation[0]?.label ?? 'Unknown') : relation.label;
 };
 
-/**
- * Which checks failed, who they failed on, and the evidence attached.
- * All three come from one pass: the check tells you what to fix
- * systemically, the name tells you who to talk to, the photo settles it.
- */
 const gather = async (
   records: InspectionSummary[],
 ): Promise<{
   byCheck: Map<string, number>;
   byDriver: Map<string, Deviation>;
   evidence: Evidence[];
+  failureCount: number;
 }> => {
   const byCheck = new Map<string, number>();
   const byDriver = new Map<string, Deviation>();
@@ -78,18 +87,19 @@ const gather = async (
 
   const ids = records.filter((record) => record.failedCount > 0).map((record) => record.id);
   if (ids.length === 0) {
-    return { byCheck, byDriver, evidence };
+    return { byCheck, byDriver, evidence, failureCount: 0 };
   }
 
   const db = serviceClient();
-
   const { data } = await db
     .from('inspection_results')
     .select('inspection_id, note, check_items(label), inspection_photos(storage_key)')
     .in('inspection_id', ids)
     .eq('passed', false);
 
-  for (const raw of (data ?? []) as unknown as FailureRow[]) {
+  const rows = (data ?? []) as unknown as FailureRow[];
+
+  for (const raw of rows) {
     const label = labelOf(raw.check_items);
     byCheck.set(label, (byCheck.get(label) ?? 0) + 1);
 
@@ -124,13 +134,59 @@ const gather = async (
     }
   }
 
-  return { byCheck, byDriver, evidence };
+  return { byCheck, byDriver, evidence, failureCount: rows.length };
+};
+
+/**
+ * The most recent earlier day this area was inspected, not simply
+ * yesterday. On a fleet that does not run every day, "yesterday" is
+ * often zero and the comparison becomes noise.
+ */
+const previousRound = async (
+  areaId: string,
+  before: Date,
+): Promise<{ label: string; compliancePct: number } | null> => {
+  const start = new Date(before);
+  start.setDate(start.getDate() - 30);
+  start.setHours(0, 0, 0, 0);
+
+  const earlier = await listInspectionsSince(start, { until: new Date(before.getTime() - 1), areaId });
+  if (earlier.length === 0) {
+    return null;
+  }
+
+  const days = new Map<string, InspectionSummary[]>();
+  for (const record of earlier) {
+    const key = record.performedAt.slice(0, 10);
+    days.set(key, [...(days.get(key) ?? []), record]);
+  }
+
+  const latestKey = [...days.keys()].sort().pop();
+  if (latestKey === undefined) {
+    return null;
+  }
+
+  const dayRecords = days.get(latestKey) ?? [];
+  const cleared = dayRecords.filter((record) => record.status === 'compliant').length;
+
+  const date = new Date(`${latestKey}T12:00:00`);
+  const isYesterday =
+    new Date(before).setHours(0, 0, 0, 0) - date.setHours(0, 0, 0, 0) === 86_400_000;
+
+  return {
+    label: isYesterday
+      ? 'yesterday'
+      : new Date(`${latestKey}T12:00:00`).toLocaleDateString('en-GB', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'short',
+        }),
+    compliancePct: dayRecords.length === 0 ? 0 : Math.round((cleared / dayRecords.length) * 100),
+  };
 };
 
 export type BuiltReport = {
-  /** Plain-text fallback, and what the preview shows. */
   text: string;
-  /** One entry per Slack message. Long rounds are split. */
   messages: { text: string; blocks: SlackBlock[] }[];
   photoCount: number;
 };
@@ -141,75 +197,161 @@ export const buildAreaReport = async (
 ): Promise<BuiltReport> => {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
+  const now = new Date();
 
-  const records = await listInspectionsSince(startOfDay, { areaId: input.areaId });
-  const total = records.length;
+  const [records, stats] = await Promise.all([
+    listInspectionsSince(startOfDay, { areaId: input.areaId }),
+    getReportStats(startOfDay, now, input.areaId),
+  ]);
 
-  if (total === 0) {
-    const empty = `*${input.areaName} — no checks recorded today.*`;
-    return {
-      text: empty,
-      messages: [{ text: empty, blocks: [section(empty)] }],
-      photoCount: 0,
-    };
+  const noteLine =
+    input.note === undefined || input.note.trim() === ''
+      ? null
+      : `*Inspector's notes:* ${input.note.trim()}`;
+
+  const dateLabel = now.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  if (records.length === 0) {
+    const lines = [
+      `*${input.areaName}, morning pre-departure*`,
+      `${dateLabel} · ${inspector.fullName}`,
+      '',
+      `:warning: *No vans inspected.* ${plural(stats.vansActive, 'van')} in this area were not checked.`,
+    ];
+    if (noteLine !== null) {
+      lines.push('', noteLine);
+    }
+    const text = lines.join('\n');
+    return { text, messages: [{ text, blocks: [section(text)] }], photoCount: 0 };
   }
+
+  const { byCheck, byDriver, evidence, failureCount } = await gather(records);
 
   const cleared = records.filter((record) => record.status === 'compliant').length;
   const held = records.filter((record) => record.dispatchBlocked).length;
   const nonCompliant = records.filter((record) => record.status === 'noncompliant').length;
-  const compliance = percentage(cleared, total);
 
-  const { byCheck, byDriver, evidence } = await gather(records);
+  const times = records.map((record) => record.performedAt).sort();
+  const window =
+    times.length > 1 && times[0] !== undefined && times[times.length - 1] !== undefined
+      ? `${timeOf(times[0])} to ${timeOf(times[times.length - 1] ?? times[0])}`
+      : timeOf(times[0] ?? now.toISOString());
 
-  const topChecks = [...byCheck.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([label, count]) => `  • ${label} — ${pluralVans(count)}`);
-
-  const deviations = [...byDriver.values()]
-    .sort((a, b) => b.count - a.count)
-    .map((entry) => `  • ${entry.name} — ${entry.count} (${[...new Set(entry.items)].join(', ')})`);
-
-  const heldVans = records
-    .filter((record) => record.dispatchBlocked)
-    .map((record) => `  • ${record.plate} — ${record.driverName}`);
+  const previous = await previousRound(input.areaId, startOfDay);
+  const trend =
+    previous === null
+      ? ''
+      : (() => {
+          const delta = stats.compliancePct - previous.compliancePct;
+          if (delta === 0) {
+            return `, level with ${previous.label}`;
+          }
+          return `, ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)} points on ${previous.label}`;
+        })();
 
   const temps = records
     .map((record) => record.tempReadingC)
     .filter((value): value is number => value !== null);
   const worstTemp = temps.length === 0 ? null : Math.max(...temps);
 
-  // A compliance figure with no verdict invites everyone to read it
-  // differently. State the call plainly, above the numbers.
-  const verdict =
-    compliance === 100
-      ? ':white_check_mark: Whole area cleared first time.'
-      : held > 0
-        ? `:octagonal_sign: ${pluralVans(held)} held and must not dispatch until re-checked.`
-        : ':warning: No vans held, but the failures below need closing today.';
+  // A bare figure invites five readings. Say what it means.
+  const tempVerdict =
+    worstTemp === null
+      ? null
+      : worstTemp > TEMP_MAX_C
+        ? `*Highest temperature: ${worstTemp.toFixed(1)} °C*, above the ${TEMP_MAX_C} °C limit`
+        : worstTemp === TEMP_MAX_C
+          ? `*Highest temperature: ${worstTemp.toFixed(1)} °C*, within range but at the limit`
+          : `*Highest temperature: ${worstTemp.toFixed(1)} °C*, within range`;
+
+  const heldRecords = records.filter((record) => record.dispatchBlocked);
+
+  const icon = held > 0 ? ':octagonal_sign:' : failureCount > 0 ? ':warning:' : ':white_check_mark:';
 
   const lines: string[] = [
-    `*${input.areaName} — morning pre-departure report*`,
-    `${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} · inspected by ${inspector.fullName}`,
+    `${icon} *${input.areaName}, morning pre-departure*`,
+    `${dateLabel}, ${window} · ${inspector.fullName}`,
     '',
-    verdict,
-    '',
-    `*Compliance:* ${compliance}%  (${cleared} cleared / ${nonCompliant} non-compliant / ${held} held of ${total} checked)`,
   ];
 
-  if (worstTemp !== null) {
-    lines.push(`*Highest temperature recorded:* ${worstTemp.toFixed(1)} °C`);
+  // Coverage first. "5 checked" says nothing without the denominator, and
+  // an uninspected van is a larger unknown than a failed one.
+  if (stats.missedPlates.length === 0) {
+    lines.push(
+      `*Coverage: ${stats.vansCovered} of ${stats.vansActive} vans.* Full fleet inspected${
+        failureCount === 0 ? ', all cleared first time.' : '.'
+      }`,
+    );
+  } else {
+    lines.push(
+      `*Coverage: ${stats.vansCovered} of ${stats.vansActive} vans.* ${stats.missedPlates.length} not inspected: ${stats.missedPlates.join(', ')}`,
+    );
   }
-  if (heldVans.length > 0) {
-    lines.push('', '*Vans held:*', ...heldVans);
+
+  // A clean round needs no compliance line: coverage already said it.
+  if (failureCount > 0) {
+    const parts = [`${cleared} cleared`];
+    if (nonCompliant > 0) {
+      parts.push(`${nonCompliant} non-compliant`);
+    }
+    if (held > 0) {
+      parts.push(`${held} held`);
+    }
+    lines.push(`*Compliance: ${stats.compliancePct}%* (${parts.join(', ')})${trend}`);
   }
-  if (topChecks.length > 0) {
-    lines.push('', '*Main gaps:*', ...topChecks);
+
+  if (tempVerdict !== null) {
+    lines.push(tempVerdict);
   }
-  if (deviations.length > 0) {
-    lines.push('', '*Deviations by driver:*', ...deviations);
+
+  if (failureCount > 0 && failureCount < FAILURE_DETAIL_THRESHOLD) {
+    // Collapsed: one line per problem rather than three headings that
+    // each restate it.
+    lines.push('');
+    for (const record of records.filter((candidate) => candidate.failedCount > 0)) {
+      const deviation = byDriver.get(record.driverName);
+      const checks = deviation === undefined ? '' : [...new Set(deviation.items)].join(', ');
+      lines.push(
+        record.dispatchBlocked
+          ? `*${record.plate} held.* ${checks}, ${record.driverName}. Must not dispatch until re-checked.`
+          : `*${record.plate}.* ${checks}, ${record.driverName}.`,
+      );
+    }
+  } else if (failureCount >= FAILURE_DETAIL_THRESHOLD) {
+    if (heldRecords.length > 0) {
+      lines.push(
+        '',
+        '*Vans held*',
+        ...heldRecords.map((record) => `• ${record.plate}, ${record.driverName}`),
+      );
+    }
+
+    const topChecks = [...byCheck.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, count]) => `• ${label}, ${plural(count, 'van')}`);
+    if (topChecks.length > 0) {
+      lines.push('', '*Main gaps*', ...topChecks);
+    }
+
+    const deviations = [...byDriver.values()]
+      .sort((a, b) => b.count - a.count)
+      .map((entry) => `• ${entry.name}, ${entry.count} (${[...new Set(entry.items)].join(', ')})`);
+    if (deviations.length > 0) {
+      lines.push('', '*Deviations by driver*', ...deviations);
+    }
   }
-  if (input.note !== undefined && input.note.trim() !== '') {
-    lines.push('', `*Inspector's notes:* ${input.note.trim()}`);
+
+  // Always included when written, whichever shape the report takes.
+  if (noteLine !== null) {
+    lines.push('', noteLine);
+  }
+
+  if (input.origin !== undefined && input.origin !== '') {
+    lines.push('', `<${input.origin}/admin|View the full record and photos>`);
   }
 
   const summary = lines.join('\n');
@@ -221,25 +363,18 @@ export const buildAreaReport = async (
         {
           type: 'mrkdwn' as const,
           text: `*${item.plate}* · ${item.checkLabel} · ${item.driverName}${
-            item.note === null || item.note === '' ? '' : ` — ${item.note}`
+            item.note === null || item.note === '' ? '' : ` · ${item.note}`
           }`,
         },
       ],
     },
-    {
-      type: 'image' as const,
-      image_url: item.url,
-      alt_text: `${item.plate} ${item.checkLabel}`,
-    },
+    { type: 'image' as const, image_url: item.url, alt_text: `${item.plate} ${item.checkLabel}` },
   ]);
 
-  // Slack rejects a message over 50 blocks, so a long round is split
-  // across several rather than silently dropping the tail.
   const messages: BuiltReport['messages'] = [];
-  const header: SlackBlock[] = [section(summary)];
 
   if (imageBlocks.length === 0) {
-    messages.push({ text: summary, blocks: header });
+    messages.push({ text: summary, blocks: [section(summary)] });
   } else {
     const chunks: SlackBlock[][] = [];
     for (let i = 0; i < imageBlocks.length; i += MAX_IMAGE_BLOCKS_PER_MESSAGE) {
@@ -250,11 +385,16 @@ export const buildAreaReport = async (
       if (index === 0) {
         messages.push({
           text: summary,
-          blocks: [...header, { type: 'divider' }, section('*Evidence*'), ...chunk],
+          blocks: [
+            section(summary),
+            { type: 'divider' },
+            section(`*Evidence* (${plural(evidence.length, 'photo')})`),
+            ...chunk,
+          ],
         });
       } else {
         messages.push({
-          text: `${input.areaName} — evidence continued`,
+          text: `${input.areaName}, evidence continued`,
           blocks: [section(`*Evidence continued (${index + 1} of ${chunks.length})*`), ...chunk],
         });
       }
@@ -263,10 +403,6 @@ export const buildAreaReport = async (
 
   return { text: summary, messages, photoCount: evidence.length };
 };
-
-function section(text: string): SlackBlock {
-  return { type: 'section', text: { type: 'mrkdwn', text } };
-}
 
 export const postAreaReport = async (report: BuiltReport, areaId: string): Promise<void> => {
   const webhook = process.env.SLACK_WEBHOOK_URL;
@@ -304,7 +440,6 @@ export const postAreaReport = async (report: BuiltReport, areaId: string): Promi
         throw new Error(`Slack rejected the report (${response.status})`);
       }
     }
-
     await log(true, null);
   } catch (cause: unknown) {
     const message = cause instanceof Error ? cause.message : 'Network error';
