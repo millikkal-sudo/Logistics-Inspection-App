@@ -102,6 +102,7 @@ export const submitInspection = async (
     .insert({
       van_id: submission.vanId,
       driver_id: submission.driverId,
+      helper_id: submission.helperId ?? null,
       area_id: submission.areaId ?? null,
       inspector_id: inspector.id,
       status,
@@ -181,7 +182,9 @@ type SummaryRow = {
   area_name: string;
   area_id: string | null;
   driver_name: string;
+  helper_name: string | null;
   inspector_name: string;
+  notes: string | null;
   status: InspectionStatus;
   dispatch_blocked: boolean;
   failed_count: number;
@@ -217,10 +220,136 @@ export const listInspectionsSince = async (
     plate: row.plate,
     areaName: row.area_name,
     driverName: row.driver_name,
+    helperName: row.helper_name,
     inspectorName: row.inspector_name,
+    notes: row.notes,
     status: row.status,
     dispatchBlocked: row.dispatch_blocked,
     failedCount: row.failed_count,
     tempReadingC: row.temp_reading_c,
   }));
+};
+
+/* ---------------------------- detail view ---------------------------- */
+
+export type InspectionResultDetail = {
+  label: string;
+  critical: boolean;
+  passed: boolean;
+  numericValue: number | null;
+  note: string | null;
+  /** Signed, short-lived. The bucket is private. */
+  photoUrls: string[];
+};
+
+export type InspectionDetail = {
+  id: string;
+  performedAt: string;
+  plate: string;
+  areaName: string;
+  driverName: string;
+  helperName: string | null;
+  inspectorName: string;
+  status: InspectionStatus;
+  dispatchBlocked: boolean;
+  notes: string | null;
+  failures: InspectionResultDetail[];
+  passedCount: number;
+};
+
+const PHOTO_URL_TTL_SECONDS = 3600;
+
+type ResultDetailRow = {
+  passed: boolean;
+  numeric_value: number | null;
+  note: string | null;
+  check_items: { label: string; critical: boolean } | { label: string; critical: boolean }[] | null;
+  inspection_photos: { storage_key: string }[] | null;
+};
+
+const firstOf = <T,>(value: T | T[] | null): T | null => {
+  if (value === null) {
+    return null;
+  }
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+};
+
+/**
+ * Everything an auditor needs about one check: which items failed, what
+ * the supervisor wrote, and the evidence photos.
+ */
+export const getInspectionDetail = async (id: string): Promise<InspectionDetail | null> => {
+  const db = serviceClient();
+
+  const { data: summary, error: summaryError } = await db
+    .from('v_inspection_summary')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (summaryError !== null) {
+    throw new Error(`Could not load the inspection: ${summaryError.message}`);
+  }
+  if (summary === null) {
+    return null;
+  }
+
+  const { data: results, error: resultsError } = await db
+    .from('inspection_results')
+    .select('passed, numeric_value, note, check_items(label, critical), inspection_photos(storage_key)')
+    .eq('inspection_id', id);
+
+  if (resultsError !== null) {
+    throw new Error(`Could not load the check results: ${resultsError.message}`);
+  }
+
+  const rows: ResultDetailRow[] = results ?? [];
+  const failures: InspectionResultDetail[] = [];
+  let passedCount = 0;
+
+  for (const row of rows) {
+    if (row.passed) {
+      passedCount += 1;
+      continue;
+    }
+
+    const item = firstOf(row.check_items);
+    const keys = (row.inspection_photos ?? []).map((photo) => photo.storage_key);
+    const photoUrls: string[] = [];
+
+    for (const key of keys) {
+      const { data } = await db
+        .storage.from('inspection-photos')
+        .createSignedUrl(key, PHOTO_URL_TTL_SECONDS);
+      if (data !== null) {
+        photoUrls.push(data.signedUrl);
+      }
+    }
+
+    failures.push({
+      label: item?.label ?? 'Unknown check',
+      critical: item?.critical ?? false,
+      passed: false,
+      numericValue: row.numeric_value === null ? null : Number(row.numeric_value),
+      note: row.note,
+      photoUrls,
+    });
+  }
+
+  const record = summary as SummaryRow & { dispatch_blocked: boolean };
+
+  return {
+    id: record.id,
+    performedAt: record.performed_at,
+    plate: record.plate,
+    areaName: record.area_name,
+    driverName: record.driver_name,
+    helperName: record.helper_name,
+    inspectorName: record.inspector_name,
+    status: record.status,
+    dispatchBlocked: record.dispatch_blocked,
+    notes: record.notes,
+    failures,
+    passedCount,
+  };
 };

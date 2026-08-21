@@ -20,13 +20,6 @@ const requireText = (value: unknown, field: string): string => {
   return value.trim();
 };
 
-const optionalText = (value: unknown): string | null => {
-  if (typeof value !== 'string' || value.trim() === '') {
-    return null;
-  }
-  return value.trim();
-};
-
 const optionalUuid = (value: unknown): string | null =>
   typeof value === 'string' && value !== '' ? value : null;
 
@@ -38,29 +31,45 @@ const buildAreaRow = (payload: Payload): Payload => ({
   sort_order: typeof payload.sortOrder === 'number' ? payload.sortOrder : 100,
 });
 
-const buildVanRow = (payload: Payload): Payload => {
-  const min = typeof payload.tempMinC === 'number' ? payload.tempMinC : 0;
-  const max = typeof payload.tempMaxC === 'number' ? payload.tempMaxC : 5;
+// Every van runs 0-5 °C, so the range is not asked for. The columns
+// stay in the schema for a future exception.
+const buildVanRow = (payload: Payload): Payload => ({
+  plate: requireText(payload.plate, 'Plate').toUpperCase(),
+  area_id: optionalUuid(payload.areaId),
+  temp_min_c: 0,
+  temp_max_c: 5,
+});
 
-  if (min >= max) {
-    throw new ValidationError('The minimum temperature must be below the maximum');
+/**
+ * A helper rides with one driver, so their van and area are copied from
+ * that driver rather than entered again. Two places to record the same
+ * fact is two places for it to drift.
+ */
+const buildDriverRow = (payload: Payload): Payload => {
+  const staffRole = payload.staffRole === 'helper' ? 'helper' : 'driver';
+
+  if (staffRole === 'helper') {
+    const partnerId = optionalUuid(payload.partnerId);
+    if (partnerId === null) {
+      throw new ValidationError('A helper must be paired with a driver');
+    }
+    return {
+      full_name: requireText(payload.fullName, 'Name'),
+      staff_role: 'helper',
+      partner_id: partnerId,
+      area_id: optionalUuid(payload.areaId),
+      default_van: optionalUuid(payload.defaultVanId),
+    };
   }
 
   return {
-    plate: requireText(payload.plate, 'Plate').toUpperCase(),
+    full_name: requireText(payload.fullName, 'Name'),
+    staff_role: 'driver',
+    partner_id: null,
     area_id: optionalUuid(payload.areaId),
-    temp_min_c: min,
-    temp_max_c: max,
+    default_van: optionalUuid(payload.defaultVanId),
   };
 };
-
-const buildDriverRow = (payload: Payload): Payload => ({
-  employee_id: requireText(payload.employeeId, 'Employee ID'),
-  full_name: requireText(payload.fullName, 'Driver name'),
-  route: optionalText(payload.route),
-  area_id: optionalUuid(payload.areaId),
-  default_van: optionalUuid(payload.defaultVanId),
-});
 
 const BUILDERS: Record<Entity, (payload: Payload) => Payload> = {
   areas: buildAreaRow,

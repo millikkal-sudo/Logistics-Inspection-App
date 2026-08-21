@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { PlateScanner } from './PlateScanner';
 import type { Area, Driver, InspectionStatus, Van } from '@/lib/types';
 
 type Tab = 'reports' | 'areas' | 'vans' | 'drivers';
@@ -12,11 +13,32 @@ type ReportRow = {
   plate: string;
   areaName: string;
   driverName: string;
+  helperName: string | null;
   inspectorName: string;
   status: InspectionStatus;
   dispatchBlocked: boolean;
   failedCount: number;
   tempReadingC: number | null;
+  notes: string | null;
+};
+
+type FailureDetail = {
+  label: string;
+  critical: boolean;
+  numericValue: number | null;
+  note: string | null;
+  photoUrls: string[];
+};
+
+type Detail = {
+  id: string;
+  plate: string;
+  driverName: string;
+  helperName: string | null;
+  inspectorName: string;
+  notes: string | null;
+  failures: FailureDetail[];
+  passedCount: number;
 };
 
 const STATUS_META: Record<InspectionStatus, { label: string; text: string; bg: string }> = {
@@ -246,35 +268,7 @@ const Reports = ({ areas }: { areas: Area[] }) => {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id} className="border-b border-line last:border-b-0">
-                    <td className="px-4 py-3 text-xs text-sub">
-                      {new Date(row.performedAt).toLocaleString('en-GB', {
-                        day: '2-digit',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </td>
-                    <td className="px-4 py-3">{row.areaName}</td>
-                    <td className="px-4 py-3 font-bold text-ink">{row.plate}</td>
-                    <td className="px-4 py-3">{row.driverName}</td>
-                    <td
-                      className={`px-4 py-3 tabular-nums ${
-                        row.tempReadingC === null ? 'text-sub' : ''
-                      }`}
-                    >
-                      {row.tempReadingC === null ? '—' : `${row.tempReadingC.toFixed(1)}°C`}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                          STATUS_META[row.status].bg
-                        } ${STATUS_META[row.status].text}`}
-                      >
-                        {STATUS_META[row.status].label}
-                      </span>
-                    </td>
-                  </tr>
+                  <InspectionRow key={row.id} row={row} />
                 ))}
               </tbody>
             </table>
@@ -288,6 +282,152 @@ const Reports = ({ areas }: { areas: Area[] }) => {
         </>
       )}
     </div>
+  );
+};
+
+/**
+ * A row that expands to show the evidence. Only failed checks have
+ * anything to show, so a fully compliant inspection does not expand —
+ * an empty panel is a worse answer than no panel.
+ */
+const InspectionRow = ({ row }: { row: ReportRow }) => {
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const hasDetail = row.failedCount > 0 || (row.notes !== null && row.notes !== '');
+
+  const toggle = async (): Promise<void> => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+
+    if (detail === null) {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/inspections/${row.id}`);
+        if (response.ok) {
+          setDetail((await response.json()) as Detail);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  return (
+    <>
+      <tr
+        className={`border-b border-line last:border-b-0 ${hasDetail ? 'cursor-pointer hover:bg-steel' : ''}`}
+        onClick={hasDetail ? () => void toggle() : undefined}
+      >
+        <td className="px-4 py-3 text-xs text-sub">
+          {new Date(row.performedAt).toLocaleString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </td>
+        <td className="px-4 py-3">{row.areaName}</td>
+        <td className="px-4 py-3 font-bold text-ink">
+          {row.plate}
+          {hasDetail && (
+            <span className="ml-2 text-xs font-normal text-fleet">
+              {open ? '\u25be' : '\u25b8'} {row.failedCount > 0 ? `${row.failedCount} issue${row.failedCount > 1 ? 's' : ''}` : 'note'}
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          {row.driverName}
+          {row.helperName !== null && (
+            <span className="text-xs text-sub"> + {row.helperName}</span>
+          )}
+        </td>
+        <td className={`px-4 py-3 tabular-nums ${row.tempReadingC === null ? 'text-sub' : ''}`}>
+          {row.tempReadingC === null ? '\u2014' : `${row.tempReadingC.toFixed(1)}\u00b0C`}
+        </td>
+        <td className="px-4 py-3">
+          <span
+            className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${STATUS_META[row.status].bg} ${STATUS_META[row.status].text}`}
+          >
+            {STATUS_META[row.status].label}
+          </span>
+        </td>
+      </tr>
+
+      {open && (
+        <tr className="border-b border-line bg-steel">
+          <td colSpan={6} className="px-4 py-4">
+            {loading && <p className="text-sm text-sub">Loading evidence\u2026</p>}
+
+            {detail !== null && (
+              <div className="space-y-4">
+                {detail.failures.map((failure) => (
+                  <div
+                    key={failure.label}
+                    className="rounded-xl border border-line bg-white p-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-bold text-ink">{failure.label}</span>
+                      {failure.critical && (
+                        <span className="rounded bg-hold-soft px-1.5 py-0.5 text-[9px] font-bold text-hold">
+                          BLOCKED DISPATCH
+                        </span>
+                      )}
+                      {failure.numericValue !== null && (
+                        <span className="text-xs font-bold text-fail">
+                          {failure.numericValue.toFixed(1)}\u00b0C
+                        </span>
+                      )}
+                    </div>
+
+                    {failure.note !== null && failure.note !== '' && (
+                      <p className="mt-1 text-sm text-sub">{failure.note}</p>
+                    )}
+
+                    {failure.photoUrls.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-3">
+                        {failure.photoUrls.map((url) => (
+                          <a key={url} href={url} target="_blank" rel="noreferrer">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={url}
+                              alt={`Evidence for ${failure.label}`}
+                              className="h-40 w-40 rounded-lg border border-line object-cover"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+
+                    {failure.photoUrls.length === 0 && (
+                      <p className="mt-2 text-xs text-hold">No photo attached.</p>
+                    )}
+                  </div>
+                ))}
+
+                {detail.notes !== null && detail.notes !== '' && (
+                  <div className="rounded-xl border border-line bg-white p-4">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-sub">
+                      Inspector\u2019s notes
+                    </div>
+                    <p className="mt-1 text-sm text-ink">{detail.notes}</p>
+                  </div>
+                )}
+
+                <p className="text-xs text-sub">
+                  {detail.passedCount} check{detail.passedCount === 1 ? '' : 's'} passed \u00b7
+                  recorded by {detail.inspectorName}. Photo links expire after an hour.
+                </p>
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
   );
 };
 
@@ -468,16 +608,9 @@ const VansTab = ({
 }) => {
   const [plate, setPlate] = useState('');
   const [areaId, setAreaId] = useState(areas[0]?.id ?? '');
-  const [minC, setMinC] = useState('0');
-  const [maxC, setMaxC] = useState('5');
 
   const add = async (): Promise<void> => {
-    const ok = await onCall('/api/admin/vans', 'POST', {
-      plate,
-      areaId,
-      tempMinC: Number.parseFloat(minC),
-      tempMaxC: Number.parseFloat(maxC),
-    });
+    const ok = await onCall('/api/admin/vans', 'POST', { plate, areaId });
     if (ok) {
       setPlate('');
     }
@@ -486,6 +619,9 @@ const VansTab = ({
   return (
     <div className="space-y-4">
       <Panel title="Add a van">
+        <p className="mb-3 text-xs text-sub">
+          All vans run 0–5 °C. Scanning fills the plate in for you — check it before saving.
+        </p>
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Plate">
             <input
@@ -508,24 +644,9 @@ const VansTab = ({
               ))}
             </select>
           </Field>
-          <Field label="Min °C">
-            <input
-              type="number"
-              step="0.1"
-              value={minC}
-              onChange={(event) => setMinC(event.target.value)}
-              className={`${inputClass} w-24`}
-            />
-          </Field>
-          <Field label="Max °C">
-            <input
-              type="number"
-              step="0.1"
-              value={maxC}
-              onChange={(event) => setMaxC(event.target.value)}
-              className={`${inputClass} w-24`}
-            />
-          </Field>
+          <div className="self-end">
+            <PlateScanner onDetected={setPlate} />
+          </div>
           <button
             type="button"
             onClick={() => void add()}
@@ -545,9 +666,7 @@ const VansTab = ({
           >
             <div>
               <span className="font-bold text-ink">{van.plate}</span>
-              <span className="ml-2 text-xs text-sub">
-                {areaName(van.areaId)} · {van.tempMinC}–{van.tempMaxC} °C
-              </span>
+              <span className="ml-2 text-xs text-sub">{areaName(van.areaId)} · 0–5 °C</span>
               {!van.active && (
                 <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-sub">
                   INACTIVE
@@ -585,35 +704,66 @@ const DriversTab = ({
   areaName: (id: string | null) => string;
   onCall: CallFn;
 }) => {
+  const [staffRole, setStaffRole] = useState<'driver' | 'helper'>('driver');
   const [fullName, setFullName] = useState('');
-  const [employeeId, setEmployeeId] = useState('');
-  const [route, setRoute] = useState('');
   const [areaId, setAreaId] = useState(areas[0]?.id ?? '');
   const [vanId, setVanId] = useState('');
+  const [partnerId, setPartnerId] = useState('');
 
-  // Only offer vans in the chosen area — assigning a Dubai driver to a
-  // Fujairah van is always a mistake, so do not make it possible.
   const vansInArea = vans.filter((van) => van.areaId === areaId && van.active);
+  const activeDrivers = drivers.filter(
+    (person) => person.staffRole === 'driver' && person.active,
+  );
+
+  // A driver who already has a helper cannot take another.
+  const pairedDriverIds = new Set(
+    drivers
+      .filter((person) => person.staffRole === 'helper' && person.active)
+      .map((person) => person.partnerId),
+  );
+  const availableDrivers = activeDrivers.filter((person) => !pairedDriverIds.has(person.id));
+
+  const partner = drivers.find((person) => person.id === partnerId);
 
   const add = async (): Promise<void> => {
-    const ok = await onCall('/api/admin/drivers', 'POST', {
-      fullName,
-      employeeId,
-      route,
-      areaId,
-      defaultVanId: vanId,
-    });
+    const payload =
+      staffRole === 'helper'
+        ? {
+            staffRole,
+            fullName,
+            partnerId,
+            // Inherited so the pair can never end up on different vans.
+            areaId: partner?.areaId ?? null,
+            defaultVanId: partner?.defaultVanId ?? null,
+          }
+        : { staffRole, fullName, areaId, defaultVanId: vanId };
+
+    const ok = await onCall('/api/admin/drivers', 'POST', payload);
     if (ok) {
       setFullName('');
-      setEmployeeId('');
-      setRoute('');
       setVanId('');
+      setPartnerId('');
     }
   };
 
   return (
     <div className="space-y-4">
-      <Panel title="Add a driver">
+      <Panel title="Add a driver or helper">
+        <div className="mb-3 flex gap-2">
+          {(['driver', 'helper'] as const).map((role) => (
+            <button
+              key={role}
+              type="button"
+              onClick={() => setStaffRole(role)}
+              className={`rounded-lg px-4 py-2 text-sm font-bold capitalize ${
+                staffRole === role ? 'bg-fleet text-white' : 'bg-steel text-sub'
+              }`}
+            >
+              {role}
+            </button>
+          ))}
+        </div>
+
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Name">
             <input
@@ -623,89 +773,114 @@ const DriversTab = ({
               className={inputClass}
             />
           </Field>
-          <Field label="Employee ID">
-            <input
-              value={employeeId}
-              onChange={(event) => setEmployeeId(event.target.value)}
-              placeholder="D-1047"
-              className={`${inputClass} w-32`}
-            />
-          </Field>
-          <Field label="Area">
-            <select
-              value={areaId}
-              onChange={(event) => {
-                setAreaId(event.target.value);
-                setVanId('');
-              }}
-              className={inputClass}
-            >
-              {areas.map((area) => (
-                <option key={area.id} value={area.id}>
-                  {area.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Van">
-            <select
-              value={vanId}
-              onChange={(event) => setVanId(event.target.value)}
-              className={inputClass}
-            >
-              <option value="">No van yet</option>
-              {vansInArea.map((van) => (
-                <option key={van.id} value={van.id}>
-                  {van.plate}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Route">
-            <input
-              value={route}
-              onChange={(event) => setRoute(event.target.value)}
-              placeholder="Dubai Marina – JLT"
-              className={inputClass}
-            />
-          </Field>
+
+          {staffRole === 'driver' ? (
+            <>
+              <Field label="Area">
+                <select
+                  value={areaId}
+                  onChange={(event) => {
+                    setAreaId(event.target.value);
+                    setVanId('');
+                  }}
+                  className={inputClass}
+                >
+                  {areas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Van">
+                <select
+                  value={vanId}
+                  onChange={(event) => setVanId(event.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">No van yet</option>
+                  {vansInArea.map((van) => (
+                    <option key={van.id} value={van.id}>
+                      {van.plate}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </>
+          ) : (
+            <Field label="Rides with">
+              <select
+                value={partnerId}
+                onChange={(event) => setPartnerId(event.target.value)}
+                className={inputClass}
+              >
+                <option value="">Choose a driver</option>
+                {availableDrivers.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.fullName} · {areaName(person.areaId)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+
           <button
             type="button"
             onClick={() => void add()}
-            disabled={busy}
+            disabled={busy || (staffRole === 'helper' && partnerId === '')}
             className="rounded-lg bg-fleet px-5 py-2.5 text-sm font-bold text-white disabled:bg-line disabled:text-sub"
           >
             Add
           </button>
         </div>
 
-        {vansInArea.length === 0 && (
+        {staffRole === 'helper' && (
+          <p className="mt-3 text-xs text-sub">
+            {availableDrivers.length === 0
+              ? 'Every active driver already has a helper. Add a driver first.'
+              : 'The helper takes the same van and area as their driver.'}
+          </p>
+        )}
+
+        {staffRole === 'driver' && vansInArea.length === 0 && (
           <p className="mt-3 text-xs text-sub">
             No active vans in {areaName(areaId)} yet. Add the van first, or leave the driver
-            unassigned — an unassigned driver will not appear in the supervisor&rsquo;s list.
+            unassigned &mdash; an unassigned driver will not appear in the supervisor&rsquo;s list.
           </p>
         )}
       </Panel>
 
       <div className="overflow-hidden rounded-xl border border-line bg-white">
-        {drivers.map((driver) => {
-          const van = vans.find((candidate) => candidate.id === driver.defaultVanId);
+        {drivers.map((person) => {
+          const van = vans.find((candidate) => candidate.id === person.defaultVanId);
+          const pairedWith = drivers.find((candidate) => candidate.id === person.partnerId);
+
           return (
             <div
-              key={driver.id}
+              key={person.id}
               className="flex items-center justify-between border-b border-line px-4 py-3 last:border-b-0"
             >
               <div className="min-w-0">
-                <span className="font-bold text-ink">{driver.fullName}</span>
+                <span className="font-bold text-ink">{person.fullName}</span>
+                <span
+                  className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                    person.staffRole === 'helper'
+                      ? 'bg-steel text-sub'
+                      : 'bg-fleet/10 text-fleet'
+                  }`}
+                >
+                  {person.staffRole}
+                </span>
                 <span className="ml-2 text-xs text-sub">
-                  {driver.employeeId} · {areaName(driver.areaId)} ·{' '}
+                  {areaName(person.areaId)} ·{' '}
                   {van === undefined ? (
                     <span className="text-hold">no van assigned</span>
                   ) : (
                     van.plate
                   )}
+                  {pairedWith !== undefined && ` · with ${pairedWith.fullName}`}
                 </span>
-                {!driver.active && (
+                {!person.active && (
                   <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-sub">
                     INACTIVE
                   </span>
@@ -713,8 +888,8 @@ const DriversTab = ({
               </div>
               <ActiveToggle
                 entity="drivers"
-                id={driver.id}
-                active={driver.active}
+                id={person.id}
+                active={person.active}
                 busy={busy}
                 onCall={onCall}
               />

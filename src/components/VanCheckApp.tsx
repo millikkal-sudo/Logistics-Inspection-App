@@ -67,6 +67,7 @@ export const VanCheckApp = ({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
+  const [notes, setNotes] = useState('');
 
   const tempItem = checkItems.find((item) => item.inputType === 'temperature');
   const tempMin = van?.tempMinC ?? 0;
@@ -104,6 +105,7 @@ export const VanCheckApp = ({
     setVan(entry);
     setAnswers({});
     setTemp('');
+    setNotes('');
     setError(null);
     setScreen('check');
   };
@@ -147,7 +149,9 @@ export const VanCheckApp = ({
         body: JSON.stringify({
           vanId: van.vanId,
           driverId: van.driverId,
+          helperId: van.helperId ?? undefined,
           areaId: area?.id,
+          notes: notes.trim() === '' ? undefined : notes.trim(),
           answers: payload,
         }),
       });
@@ -178,11 +182,13 @@ export const VanCheckApp = ({
           plate: van.plate,
           areaName: area?.name ?? 'Unassigned',
           driverName: van.driverName,
+          helperName: van.helperName,
           inspectorName: profile.fullName,
           status,
           dispatchBlocked: status === 'action_required',
           failedCount: failures.length,
           tempReadingC: tempValue,
+          notes: notes.trim() === '' ? null : notes.trim(),
         },
       ]);
       setScreen('outcome');
@@ -239,6 +245,8 @@ export const VanCheckApp = ({
             tempValue={tempValue}
             tempMin={tempMin}
             tempMax={tempMax}
+            notes={notes}
+            onNotes={setNotes}
             error={error}
             saving={saving}
             ready={ready}
@@ -265,7 +273,13 @@ export const VanCheckApp = ({
         )}
 
         {screen === 'report' && (
-          <Report today={today} tempMin={tempMin} tempMax={tempMax} onBack={() => setScreen('vans')} />
+          <Report
+            today={today}
+            area={area}
+            tempMin={tempMin}
+            tempMax={tempMax}
+            onBack={() => setScreen(area === null ? 'areas' : 'vans')}
+          />
         )}
       </div>
     </div>
@@ -453,7 +467,7 @@ const VanList = ({
                 <div className="text-sm font-bold text-ink">{entry.plate}</div>
                 <div className="truncate text-xs text-sub">
                   {entry.driverName}
-                  {entry.route === '' ? '' : ` · ${entry.route}`}
+                  {entry.helperName === null ? '' : ` + ${entry.helperName}`}
                 </div>
               </div>
               {done === undefined ? (
@@ -498,6 +512,8 @@ const Checklist = ({
   tempValue,
   tempMin,
   tempMax,
+  notes,
+  onNotes,
   error,
   saving,
   ready,
@@ -518,6 +534,8 @@ const Checklist = ({
   tempValue: number | null;
   tempMin: number;
   tempMax: number;
+  notes: string;
+  onNotes: (value: string) => void;
   error: string | null;
   saving: boolean;
   ready: boolean;
@@ -546,7 +564,7 @@ const Checklist = ({
       <Header
         eyebrow="Pre-departure check"
         title={van.plate}
-        sub={`${van.driverName} · ${van.route}`}
+        sub={van.helperName === null ? van.driverName : `${van.driverName} + ${van.helperName}`}
         onBack={onBack}
       />
 
@@ -670,6 +688,20 @@ const Checklist = ({
             </div>
           );
         })}
+
+        <div className="rounded-xl border border-line bg-white p-4">
+          <div className="text-sm font-bold text-ink">Anything else to note?</div>
+          <div className="mt-0.5 text-xs text-sub">
+            Optional. Anything worth recording that the checks above do not cover.
+          </div>
+          <textarea
+            value={notes}
+            onChange={(event) => onNotes(event.target.value)}
+            rows={3}
+            placeholder="Observations, follow-ups, things to watch"
+            className="mt-3 w-full resize-none rounded-lg border border-line bg-steel p-3 text-sm text-ink outline-none"
+          />
+        </div>
 
         <button
           type="button"
@@ -853,25 +885,71 @@ const OutcomeView = ({
 
 const Report = ({
   today,
+  area,
   tempMin,
   tempMax,
   onBack,
 }: {
   today: InspectionSummary[];
+  area: Area | null;
   tempMin: number;
   tempMax: number;
   onBack: () => void;
 }) => {
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [note, setNote] = useState('');
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [photoCount, setPhotoCount] = useState(0);
+
+  const sendToSlack = async (): Promise<void> => {
+    if (area === null) {
+      return;
+    }
+    setSending(true);
+    setSendError(null);
+    try {
+      const response = await fetch('/api/reports/slack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ areaId: area.id, areaName: area.name, note }),
+      });
+      const body: unknown = await response.json();
+
+      if (!response.ok) {
+        const message =
+          typeof body === 'object' && body !== null && 'error' in body
+            ? String((body as { error: unknown }).error)
+            : 'Could not send the report';
+        setSendError(message);
+        return;
+      }
+
+      const photos =
+        typeof body === 'object' && body !== null && 'photoCount' in body
+          ? Number((body as { photoCount: unknown }).photoCount)
+          : 0;
+      setPhotoCount(photos);
+      setSent(true);
+    } catch {
+      setSendError('Could not reach the server');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const records = area === null ? today : today.filter((r) => r.areaName === area.name);
+
   const counts: Record<InspectionStatus, number> = {
     compliant: 0,
     noncompliant: 0,
     action_required: 0,
   };
-  for (const record of today) {
+  for (const record of records) {
     counts[record.status] += 1;
   }
 
-  const total = today.length === 0 ? 1 : today.length;
+  const total = records.length === 0 ? 1 : records.length;
   const pct = Math.round((counts.compliant / total) * 100);
 
   return (
@@ -879,7 +957,7 @@ const Report = ({
       <Header
         eyebrow="Today · pre-departure"
         title="Morning report"
-        sub="All areas"
+        sub={area === null ? 'All areas' : area.name}
         onBack={onBack}
       />
       <div className="space-y-4 p-4">
@@ -909,14 +987,14 @@ const Report = ({
           </div>
         </div>
 
-        {today.length === 0 ? (
+        {records.length === 0 ? (
           <p className="py-8 text-center text-sm text-sub">No checks recorded yet today.</p>
         ) : (
           <div className="overflow-hidden rounded-xl border border-line bg-white">
             <div className="border-b border-line px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-sub">
               Vans checked
             </div>
-            {today.map((record) => (
+            {records.map((record) => (
               <div
                 key={record.id}
                 className="flex items-center justify-between gap-2 border-b border-line px-4 py-3 last:border-b-0"
@@ -943,6 +1021,45 @@ const Report = ({
                 <Chip status={record.status} />
               </div>
             ))}
+          </div>
+        )}
+
+        {area !== null && records.length > 0 && (
+          <div className="rounded-xl border border-line bg-white p-4">
+            <div className="text-sm font-bold text-ink">Send {area.name} report to Slack</div>
+            <div className="mt-0.5 text-xs text-sub">
+              Compliance, gaps, and deviations by driver for the whole round.
+            </div>
+
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              rows={2}
+              placeholder="How did the round go? (optional)"
+              disabled={sent}
+              className="mt-3 w-full resize-none rounded-lg border border-line bg-steel p-3 text-sm text-ink outline-none disabled:opacity-60"
+            />
+
+            {sendError !== null && (
+              <div className="mt-2 rounded-lg bg-fail-soft p-3 text-sm font-medium text-fail">
+                {sendError}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => void sendToSlack()}
+              disabled={sending || sent}
+              className="mt-3 w-full rounded-xl bg-fleet py-3.5 text-sm font-bold text-white disabled:bg-pass-soft disabled:text-pass"
+            >
+              {sent ? 'Report sent' : sending ? 'Sending…' : 'Send report to Slack'}
+            </button>
+
+            {sent && (
+              <p className="mt-2 text-center text-xs text-sub">
+                Posted to Slack with {photoCount} photo{photoCount === 1 ? '' : 's'}.
+              </p>
+            )}
           </div>
         )}
 

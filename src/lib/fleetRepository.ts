@@ -9,7 +9,8 @@ export type FleetEntry = {
   tempMaxC: number;
   driverId: string;
   driverName: string;
-  route: string;
+  helperId: string | null;
+  helperName: string | null;
 };
 
 type AreaRow = { id: string; name: string; code: string; active: boolean; sort_order: number };
@@ -23,9 +24,9 @@ type VanRow = {
 };
 type DriverRow = {
   id: string;
-  employee_id: string;
   full_name: string;
-  route: string | null;
+  staff_role: 'driver' | 'helper';
+  partner_id: string | null;
   area_id: string | null;
   default_van: string | null;
   active: boolean;
@@ -83,7 +84,7 @@ export const listVans = async (includeInactive = false): Promise<Van[]> => {
 export const listDrivers = async (includeInactive = false): Promise<Driver[]> => {
   let query = serviceClient()
     .from('drivers')
-    .select('id, employee_id, full_name, route, area_id, default_van, active')
+    .select('id, full_name, staff_role, partner_id, area_id, default_van, active')
     .order('full_name');
 
   if (!includeInactive) {
@@ -96,9 +97,9 @@ export const listDrivers = async (includeInactive = false): Promise<Driver[]> =>
   }
   return (data ?? []).map((row: DriverRow) => ({
     id: row.id,
-    employeeId: row.employee_id,
     fullName: row.full_name,
-    route: row.route,
+    staffRole: row.staff_role,
+    partnerId: row.partner_id,
     areaId: row.area_id,
     defaultVanId: row.default_van,
     active: row.active,
@@ -111,13 +112,20 @@ export const listDrivers = async (includeInactive = false): Promise<Driver[]> =>
  * the list is just confusing at 06:30.
  */
 export const listFleet = async (): Promise<FleetEntry[]> => {
-  const [vans, drivers] = await Promise.all([listVans(), listDrivers()]);
+  const [vans, staff] = await Promise.all([listVans(), listDrivers()]);
 
   return vans.flatMap((van) => {
-    const driver = drivers.find((candidate) => candidate.defaultVanId === van.id);
+    const driver = staff.find(
+      (person) => person.staffRole === 'driver' && person.defaultVanId === van.id,
+    );
     if (driver === undefined) {
       return [];
     }
+
+    const helper = staff.find(
+      (person) => person.staffRole === 'helper' && person.partnerId === driver.id,
+    );
+
     return [
       {
         vanId: van.id,
@@ -127,8 +135,37 @@ export const listFleet = async (): Promise<FleetEntry[]> => {
         tempMaxC: van.tempMaxC,
         driverId: driver.id,
         driverName: driver.fullName,
-        route: driver.route ?? '',
+        helperId: helper?.id ?? null,
+        helperName: helper?.fullName ?? null,
       },
     ];
   });
+};
+
+/**
+ * Resolves a van and driver to human-readable names for an alert.
+ * Posting a raw UUID into Slack tells the shift lead nothing.
+ */
+export const describeInspection = async (
+  vanId: string,
+  driverId: string,
+): Promise<{ plate: string; areaName: string; driverName: string }> => {
+  const db = serviceClient();
+
+  const [van, driver] = await Promise.all([
+    db.from('vans').select('plate, areas(name)').eq('id', vanId).maybeSingle(),
+    db.from('drivers').select('full_name').eq('id', driverId).maybeSingle(),
+  ]);
+
+  const areaRelation = (van.data as { areas?: { name?: string } | { name?: string }[] } | null)
+    ?.areas;
+  const areaName = Array.isArray(areaRelation)
+    ? (areaRelation[0]?.name ?? 'Unassigned')
+    : (areaRelation?.name ?? 'Unassigned');
+
+  return {
+    plate: (van.data as { plate?: string } | null)?.plate ?? vanId,
+    areaName,
+    driverName: (driver.data as { full_name?: string } | null)?.full_name ?? driverId,
+  };
 };

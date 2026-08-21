@@ -1,0 +1,61 @@
+import { NextResponse } from 'next/server';
+import { buildAreaReport, postAreaReport } from '@/lib/areaReport';
+import { ValidationError } from '@/lib/inspectionRepository';
+import { currentProfile, ForbiddenError, UnauthorizedError } from '@/lib/session';
+
+/**
+ * Sends the end-of-round area report to Slack.
+ *
+ * preview=true builds the text without posting, so the supervisor can
+ * read what the channel will see before committing to it.
+ */
+export const POST = async (request: Request): Promise<NextResponse> => {
+  try {
+    const profile = await currentProfile();
+    const body: unknown = await request.json();
+
+    if (typeof body !== 'object' || body === null) {
+      throw new ValidationError('Expected a JSON object');
+    }
+
+    const payload = body as Record<string, unknown>;
+    const areaId = payload.areaId;
+    const areaName = payload.areaName;
+
+    if (typeof areaId !== 'string' || typeof areaName !== 'string') {
+      throw new ValidationError('areaId and areaName are required');
+    }
+
+    const report = await buildAreaReport(
+      {
+        areaId,
+        areaName,
+        ...(typeof payload.note === 'string' ? { note: payload.note } : {}),
+      },
+      profile,
+    );
+
+    if (payload.preview === true) {
+      return NextResponse.json({ text: report.text, photoCount: report.photoCount, sent: false });
+    }
+
+    await postAreaReport(report, areaId);
+    return NextResponse.json({
+      text: report.text,
+      photoCount: report.photoCount,
+      sent: true,
+    });
+  } catch (cause: unknown) {
+    if (cause instanceof UnauthorizedError) {
+      return NextResponse.json({ error: cause.message }, { status: 401 });
+    }
+    if (cause instanceof ForbiddenError) {
+      return NextResponse.json({ error: cause.message }, { status: 403 });
+    }
+    if (cause instanceof ValidationError) {
+      return NextResponse.json({ error: cause.message }, { status: 422 });
+    }
+    const message = cause instanceof Error ? cause.message : 'Unexpected error';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+};

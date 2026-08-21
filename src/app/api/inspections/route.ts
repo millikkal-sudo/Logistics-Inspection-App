@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
-import { sendBlockedAlert } from '@/lib/alerts';
 import {
-  listCheckItems,
   listInspectionsSince,
   submitInspection,
   ValidationError,
@@ -40,6 +38,10 @@ const parseSubmission = (body: unknown): InspectionSubmission => {
   return {
     vanId: candidate.vanId,
     driverId: candidate.driverId,
+    helperId: typeof candidate.helperId === 'string' ? candidate.helperId : undefined,
+    // Dropping this silently is what made every inspection show as
+    // "Unassigned" in the report.
+    areaId: typeof candidate.areaId === 'string' ? candidate.areaId : undefined,
     answers: candidate.answers,
     latitude: typeof candidate.latitude === 'number' ? candidate.latitude : undefined,
     longitude: typeof candidate.longitude === 'number' ? candidate.longitude : undefined,
@@ -68,25 +70,6 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     const profile = await currentProfile();
     const submission = parseSubmission(await request.json());
     const result = await submitInspection(submission, profile);
-
-    if (result.dispatchBlocked) {
-      const checkItems = await listCheckItems();
-      const labelByCode = new Map(checkItems.map((item) => [item.code, item.label]));
-      const temperature = submission.answers.find((a) => a.checkItemCode === 'temp');
-
-      // Awaited, not fired and forgotten: a held van where nobody was
-      // told is the failure mode this whole feature exists to prevent.
-      await sendBlockedAlert({
-        inspectionId: result.inspectionId,
-        plate: submission.vanId,
-        driverName: submission.driverId,
-        inspectorName: profile.fullName,
-        failedItems: submission.answers
-          .filter((a) => !a.passed)
-          .map((a) => labelByCode.get(a.checkItemCode) ?? a.checkItemCode),
-        temperatureC: temperature?.numericValue ?? null,
-      });
-    }
 
     return NextResponse.json(result, { status: 201 });
   } catch (cause: unknown) {

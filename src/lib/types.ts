@@ -34,11 +34,14 @@ export type Van = {
   active: boolean;
 };
 
+export type StaffRole = 'driver' | 'helper';
+
+/** A driver, or a helper paired to one driver and sharing their van. */
 export type Driver = {
   id: string;
-  employeeId: string;
   fullName: string;
-  route: string | null;
+  staffRole: StaffRole;
+  partnerId: string | null;
   areaId: string | null;
   defaultVanId: string | null;
   active: boolean;
@@ -69,6 +72,7 @@ export type CheckAnswer = {
 export type InspectionSubmission = {
   vanId: string;
   driverId: string;
+  helperId?: string;
   areaId?: string;
   answers: CheckAnswer[];
   latitude?: number;
@@ -85,11 +89,14 @@ export type InspectionSummary = {
   areaName: string;
   driverName: string;
   inspectorName: string;
+  helperName: string | null;
   status: InspectionStatus;
   dispatchBlocked: boolean;
   failedCount: number;
   tempReadingC: number | null;
+  notes: string | null;
 };
+
 
 /**
  * The single source of truth for the verdict. Lives here rather than in
