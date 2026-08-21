@@ -61,6 +61,11 @@
   --fill-brand-bold:     var(--brand-90);
   --fill-brand-regular:  var(--brand-60);
   --fill-brand-light:    var(--brand-5);
+  /* Brand fill that carries white text accessibly. brand-60 against white
+     is 3.1:1, under the 4.5:1 floor for body-size text; brand-70 is 5.1:1.
+     Used for primary buttons, which are the one place brand fill and small
+     white text meet. */
+  --fill-brand-action:   var(--brand-70);
   --fill-disabled:       var(--base-40);
   --fill-error-strong:   var(--system-error-3);
   --fill-error-weak:     var(--system-error-1);
@@ -68,6 +73,18 @@
   --fill-warning-weak:   var(--system-warning-1);
   --fill-success-strong: var(--system-success-3);
   --fill-success-weak:   var(--system-success-1);
+
+  /* --- Semantic: content on dark surfaces ---
+     Explicit alphas rather than Tailwind opacity modifiers. A modifier
+     like /60 does not compile against a CSS-variable colour: the class
+     never generates and the text silently inherits the body colour,
+     which on a dark green header is invisible. */
+  --content-invert-strong:    rgba(255, 255, 255, 0.88);
+  --content-invert-secondary: rgba(255, 255, 255, 0.72);
+  --content-invert-tertiary:  rgba(255, 255, 255, 0.55);
+  --fill-invert-subtle:       rgba(255, 255, 255, 0.16);
+  --scrim-strong:             rgba(25, 28, 31, 0.70);
+  --scrim-regular:            rgba(25, 28, 31, 0.60);
 
   /* --- Semantic: border --- */
   --border-default: var(--base-40);
