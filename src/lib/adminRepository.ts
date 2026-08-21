@@ -157,3 +157,118 @@ export const setActive = async (
     active,
   });
 };
+
+/**
+ * Permanent delete, allowed only where it destroys nothing.
+ *
+ * A van or driver named on a past inspection is part of the audit trail.
+ * Deleting it would leave "who checked DXB-4021 in March" with no
+ * answer, so those are refused and deactivation is the answer instead.
+ * What this does clear is genuine mistakes: a typo, a duplicate, test
+ * data from setting up.
+ */
+
+type Blocker = { reason: string };
+
+const countRows = async (
+  table: string,
+  column: string,
+  id: string,
+): Promise<number> => {
+  const { count, error } = await serviceClient()
+    .from(table)
+    .select('id', { count: 'exact', head: true })
+    .eq(column, id);
+
+  if (error !== null) {
+    throw new Error(`Could not check ${table}: ${error.message}`);
+  }
+  return count ?? 0;
+};
+
+const findBlockers = async (entity: Entity, id: string): Promise<Blocker[]> => {
+  const blockers: Blocker[] = [];
+
+  if (entity === 'vans') {
+    const inspections = await countRows('inspections', 'van_id', id);
+    if (inspections > 0) {
+      blockers.push({
+        reason: `${inspections} inspection${inspections === 1 ? ' has' : 's have'} been filed against this van`,
+      });
+    }
+    const assigned = await countRows('drivers', 'default_van', id);
+    if (assigned > 0) {
+      blockers.push({ reason: 'a driver is still assigned to it' });
+    }
+  }
+
+  if (entity === 'drivers') {
+    const asDriver = await countRows('inspections', 'driver_id', id);
+    const asHelper = await countRows('inspections', 'helper_id', id);
+    const total = asDriver + asHelper;
+    if (total > 0) {
+      blockers.push({
+        reason: `they appear on ${total} filed inspection${total === 1 ? '' : 's'}`,
+      });
+    }
+    const helpers = await countRows('drivers', 'partner_id', id);
+    if (helpers > 0) {
+      blockers.push({ reason: 'a helper is paired with them' });
+    }
+  }
+
+  if (entity === 'areas') {
+    const inspections = await countRows('inspections', 'area_id', id);
+    if (inspections > 0) {
+      blockers.push({
+        reason: `${inspections} inspection${inspections === 1 ? ' was' : 's were'} recorded here`,
+      });
+    }
+    const vans = await countRows('vans', 'area_id', id);
+    const staff = await countRows('drivers', 'area_id', id);
+    if (vans > 0) {
+      blockers.push({ reason: `${vans} van${vans === 1 ? ' is' : 's are'} assigned to it` });
+    }
+    if (staff > 0) {
+      blockers.push({
+        reason: `${staff} driver${staff === 1 ? ' or helper is' : 's or helpers are'} assigned to it`,
+      });
+    }
+  }
+
+  return blockers;
+};
+
+const LABELS: Record<Entity, string> = {
+  areas: 'area',
+  vans: 'van',
+  drivers: 'person',
+};
+
+export const deleteRecord = async (
+  entity: Entity,
+  id: string,
+  actor: Profile,
+): Promise<void> => {
+  const blockers = await findBlockers(entity, id);
+
+  if (blockers.length > 0) {
+    throw new ValidationError(
+      `This ${LABELS[entity]} cannot be deleted because ${blockers
+        .map((blocker) => blocker.reason)
+        .join(', and ')}. Deactivate it instead — it will stop appearing in the app but the history stays intact.`,
+    );
+  }
+
+  const db = serviceClient();
+
+  // Written before the delete: afterwards there is no row to describe.
+  const { data: snapshot } = await db.from(entity).select('*').eq('id', id).maybeSingle();
+
+  const { error } = await db.from(entity).delete().eq('id', id);
+  if (error !== null) {
+    throw new Error(`Could not delete: ${error.message}`);
+  }
+
+  await audit(actor, `${entity}.deleted`, entity, id, snapshot as Payload | null);
+};
