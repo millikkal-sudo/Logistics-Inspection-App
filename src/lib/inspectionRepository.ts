@@ -240,6 +240,8 @@ export type InspectionResultDetail = {
   note: string | null;
   /** Signed, short-lived. The bucket is private. */
   photoUrls: string[];
+  /** Raw storage keys, for server-side use such as embedding into a PDF. */
+  photoKeys: string[];
 };
 
 export type InspectionDetail = {
@@ -333,6 +335,7 @@ export const getInspectionDetail = async (id: string): Promise<InspectionDetail 
       numericValue: row.numeric_value === null ? null : Number(row.numeric_value),
       note: row.note,
       photoUrls,
+      photoKeys: keys,
     });
   }
 
