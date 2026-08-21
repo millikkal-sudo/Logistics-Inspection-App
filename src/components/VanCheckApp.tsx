@@ -303,7 +303,7 @@ const Header = ({
   <header className="bg-brand-bold px-5 pb-5 pt-5">
     <div className="mb-4 flex items-center justify-between">
       <CaloMark invert />
-      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-content-invert/50">
+      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-content-invert-tertiary">
         Van check
       </span>
     </div>
@@ -313,17 +313,17 @@ const Header = ({
           type="button"
           onClick={onBack}
           aria-label="Go back"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-card/15 text-lg text-content-invert"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-invert-subtle text-lg text-content-invert"
         >
           ←
         </button>
       )}
       <div className="min-w-0">
-        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-content-invert/60">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-content-invert-secondary">
           {eyebrow}
         </div>
         <h1 className="truncate text-xl font-bold leading-tight text-content-invert">{title}</h1>
-        <div className="truncate text-xs text-content-invert/70">{sub}</div>
+        <div className="truncate text-xs text-content-invert-secondary">{sub}</div>
       </div>
     </div>
   </header>
@@ -578,7 +578,7 @@ const Checklist = ({
       <div className="px-5 pt-4">
         <div className="h-1.5 overflow-hidden rounded-full bg-line">
           <div
-            className="h-full bg-brand transition-all duration-300"
+            className="h-full bg-brand-hero transition-all duration-300"
             style={{ width: `${(answeredCount / checkItems.length) * 100}%` }}
           />
         </div>
@@ -714,7 +714,7 @@ const Checklist = ({
           type="button"
           onClick={onSubmit}
           disabled={!ready || saving}
-          className="w-full rounded-xl bg-brand py-4 text-base font-bold text-content-invert disabled:cursor-not-allowed disabled:bg-line disabled:text-content-secondary"
+          className="w-full rounded-xl bg-brand-action py-4 text-base font-bold text-content-invert disabled:cursor-not-allowed disabled:bg-line disabled:text-content-secondary"
         >
           {label}
         </button>
@@ -788,7 +788,7 @@ const Evidence = ({
             className="h-36 w-full rounded-lg object-cover"
           />
           {answer.uploading === true && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-content-contrast/60 text-sm font-bold text-content-invert">
+            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-scrim text-sm font-bold text-content-invert">
               Uploading…
             </div>
           )}
@@ -797,7 +797,7 @@ const Evidence = ({
               type="button"
               onClick={() => onPatch(code, { photoKey: undefined, photoPreview: undefined })}
               aria-label="Remove photo"
-              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-content-contrast/70 text-content-invert"
+              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-scrim-strong text-content-invert"
             >
               ✗
             </button>
@@ -846,7 +846,7 @@ const OutcomeView = ({
     <div>
       <div className={`px-6 pb-8 pt-10 text-center ${meta.solid}`}>
         <h1 className="text-2xl font-bold text-content-invert">{title}</h1>
-        <p className="mx-auto mt-2 max-w-xs text-sm text-content-invert/85">{line}</p>
+        <p className="mx-auto mt-2 max-w-xs text-sm text-content-invert-strong">{line}</p>
       </div>
 
       <div className="space-y-3 p-4">
@@ -879,7 +879,7 @@ const OutcomeView = ({
         <button
           type="button"
           onClick={onNext}
-          className="w-full rounded-xl bg-brand py-4 text-base font-bold text-content-invert"
+          className="w-full rounded-xl bg-brand-action py-4 text-base font-bold text-content-invert"
         >
           Next van
         </button>
@@ -1057,7 +1057,7 @@ const Report = ({
               type="button"
               onClick={() => void sendToSlack()}
               disabled={sending || sent}
-              className="mt-3 w-full rounded-xl bg-brand py-3.5 text-sm font-bold text-content-invert disabled:bg-pass-soft disabled:text-pass"
+              className="mt-3 w-full rounded-xl bg-brand-action py-3.5 text-sm font-bold text-content-invert disabled:bg-pass-soft disabled:text-pass"
             >
               {sent ? 'Report sent' : sending ? 'Sending…' : 'Send report to Slack'}
             </button>
@@ -1073,7 +1073,7 @@ const Report = ({
         <button
           type="button"
           onClick={onBack}
-          className="w-full rounded-xl bg-brand py-4 text-base font-bold text-content-invert"
+          className="w-full rounded-xl bg-brand-action py-4 text-base font-bold text-content-invert"
         >
           Back to vans
         </button>
