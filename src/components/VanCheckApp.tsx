@@ -8,16 +8,19 @@ import {
   resolveStatus,
   type Area,
   type CheckAnswer,
+  type CheckCause,
   type CheckItem,
   type InspectionStatus,
   type InspectionSummary,
   type Profile,
+  type TrainingFlag,
 } from '@/lib/types';
 
 type Answer = {
   passed?: boolean;
   numericValue?: number;
   note?: string;
+  causeId?: string;
   photoKey?: string;
   photoPreview?: string;
   uploading?: boolean;
@@ -38,6 +41,13 @@ const STATUS_META: Record<InspectionStatus, { label: string; text: string; bg: s
   action_required: { label: 'Dispatch held', text: 'text-hold', bg: 'bg-hold-soft', solid: 'bg-hold' },
 };
 
+const TRAINING_CHOICES: { value: TrainingFlag; label: string }[] = [
+  { value: 'none', label: 'No, all fine' },
+  { value: 'driver', label: 'Driver' },
+  { value: 'helper', label: 'Helper' },
+  { value: 'both', label: 'Both' },
+];
+
 const clockTime = (): string =>
   new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
@@ -46,6 +56,7 @@ type Props = {
   areas: Area[];
   fleet: FleetEntry[];
   checkItems: CheckItem[];
+  causes: CheckCause[];
   initialToday: InspectionSummary[];
   canManage: boolean;
 };
@@ -55,6 +66,7 @@ export const VanCheckApp = ({
   areas,
   fleet,
   checkItems,
+  causes,
   initialToday,
   canManage,
 }: Props) => {
@@ -69,6 +81,7 @@ export const VanCheckApp = ({
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
   const [notes, setNotes] = useState('');
+  const [training, setTraining] = useState<TrainingFlag>('none');
 
   const tempItem = checkItems.find((item) => item.inputType === 'temperature');
   const tempMin = van?.tempMinC ?? 0;
@@ -93,7 +106,11 @@ export const VanCheckApp = ({
   const failures = checkItems.filter((item) => merged[item.code]?.passed === false);
   const incomplete = failures.filter((item) => {
     const answer = merged[item.code];
-    return answer?.photoKey === undefined || (answer.note ?? '').trim() === '';
+    return (
+      answer?.photoKey === undefined ||
+      (answer.note ?? '').trim() === '' ||
+      answer.causeId === undefined
+    );
   });
   const uploading = Object.values(merged).some((answer) => answer.uploading === true);
   const ready = answeredCount === checkItems.length && incomplete.length === 0 && !uploading;
@@ -107,6 +124,7 @@ export const VanCheckApp = ({
     setAnswers({});
     setTemp('');
     setNotes('');
+    setTraining('none');
     setError(null);
     setScreen('check');
   };
@@ -139,6 +157,7 @@ export const VanCheckApp = ({
         passed: answer.passed === true,
         numericValue: answer.numericValue,
         note: answer.note,
+        causeId: answer.causeId,
         photoKey: answer.photoKey,
       };
     });
@@ -153,6 +172,7 @@ export const VanCheckApp = ({
           helperId: van.helperId ?? undefined,
           areaId: area?.id,
           notes: notes.trim() === '' ? undefined : notes.trim(),
+          trainingFlag: training,
           answers: payload,
         }),
       });
@@ -190,6 +210,9 @@ export const VanCheckApp = ({
           failedCount: failures.length,
           tempReadingC: tempValue,
           notes: notes.trim() === '' ? null : notes.trim(),
+          driverId: van.driverId,
+          helperId: van.helperId,
+          trainingFlag: training,
         },
       ]);
       setScreen('outcome');
@@ -246,8 +269,12 @@ export const VanCheckApp = ({
             tempValue={tempValue}
             tempMin={tempMin}
             tempMax={tempMax}
+            causes={causes}
             notes={notes}
             onNotes={setNotes}
+            training={training}
+            onTraining={setTraining}
+            hasHelper={van.helperName !== null}
             error={error}
             saving={saving}
             ready={ready}
@@ -519,8 +546,12 @@ const Checklist = ({
   tempValue,
   tempMin,
   tempMax,
+  causes,
   notes,
   onNotes,
+  training,
+  onTraining,
+  hasHelper,
   error,
   saving,
   ready,
@@ -541,8 +572,12 @@ const Checklist = ({
   tempValue: number | null;
   tempMin: number;
   tempMax: number;
+  causes: CheckCause[];
   notes: string;
   onNotes: (value: string) => void;
+  training: TrainingFlag;
+  onTraining: (value: TrainingFlag) => void;
+  hasHelper: boolean;
   error: string | null;
   saving: boolean;
   ready: boolean;
@@ -563,7 +598,7 @@ const Checklist = ({
   } else if (answeredCount < checkItems.length) {
     label = `${checkItems.length - answeredCount} left to check`;
   } else if (incompleteCount > 0) {
-    label = `Add evidence for ${incompleteCount} failed item${incompleteCount > 1 ? 's' : ''}`;
+    label = `Complete ${incompleteCount} failed item${incompleteCount > 1 ? 's' : ''}`;
   }
 
   return (
@@ -688,6 +723,7 @@ const Checklist = ({
                   plate={van.plate}
                   code={item.code}
                   answer={answer}
+                  causes={causes.filter((cause) => cause.checkItemId === item.id)}
                   onPatch={onPatch}
                   onError={onError}
                 />
@@ -729,12 +765,14 @@ const Evidence = ({
   plate,
   code,
   answer,
+  causes,
   onPatch,
   onError,
 }: {
   plate: string;
   code: string;
   answer: Answer;
+  causes: CheckCause[];
   onPatch: (code: string, values: Answer) => void;
   onError: (message: string) => void;
 }) => {
