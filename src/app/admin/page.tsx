@@ -1,0 +1,43 @@
+import { redirect } from 'next/navigation';
+import { AdminDashboard } from '@/components/AdminDashboard';
+import { listAreas, listDrivers, listVans } from '@/lib/fleetRepository';
+import { currentProfile, ForbiddenError, UnauthorizedError } from '@/lib/session';
+
+const AdminPage = async () => {
+  try {
+    const profile = await currentProfile();
+
+    if (profile.role !== 'manager' && profile.role !== 'admin') {
+      redirect('/');
+    }
+
+    // Inactive records are included here — this is the only screen where
+    // you can bring one back.
+    const [areas, vans, drivers] = await Promise.all([
+      listAreas(true),
+      listVans(true),
+      listDrivers(true),
+    ]);
+
+    return (
+      <AdminDashboard
+        areas={areas}
+        vans={vans}
+        drivers={drivers}
+        isAdmin={profile.role === 'admin'}
+      />
+    );
+  } catch (cause: unknown) {
+    if (cause instanceof UnauthorizedError) {
+      redirect('/login');
+    }
+    if (cause instanceof ForbiddenError) {
+      redirect('/login?error=inactive');
+    }
+    throw cause;
+  }
+};
+
+export const dynamic = 'force-dynamic';
+
+export default AdminPage;

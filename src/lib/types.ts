@@ -17,12 +17,21 @@ export type Profile = {
   depot: string;
 };
 
+export type Area = {
+  id: string;
+  name: string;
+  code: string;
+  active: boolean;
+  sortOrder: number;
+};
+
 export type Van = {
   id: string;
   plate: string;
-  depot: string;
+  areaId: string | null;
   tempMinC: number;
   tempMaxC: number;
+  active: boolean;
 };
 
 export type Driver = {
@@ -30,7 +39,9 @@ export type Driver = {
   employeeId: string;
   fullName: string;
   route: string | null;
+  areaId: string | null;
   defaultVanId: string | null;
+  active: boolean;
 };
 
 export type CheckItem = {
@@ -58,6 +69,7 @@ export type CheckAnswer = {
 export type InspectionSubmission = {
   vanId: string;
   driverId: string;
+  areaId?: string;
   answers: CheckAnswer[];
   latitude?: number;
   longitude?: number;
@@ -70,7 +82,7 @@ export type InspectionSummary = {
   id: string;
   performedAt: string;
   plate: string;
-  depot: string;
+  areaName: string;
   driverName: string;
   inspectorName: string;
   status: InspectionStatus;

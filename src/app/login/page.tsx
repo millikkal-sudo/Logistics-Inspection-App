@@ -36,7 +36,9 @@ const LoginForm = () => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const deactivated = params.get('error') === 'inactive';
+  const reason = params.get('error');
+  const deactivated = reason === 'inactive';
+  const misconfigured = reason === 'config';
 
   const signIn = async (): Promise<void> => {
     if (email.trim() === '' || password === '') {
@@ -80,6 +82,16 @@ const LoginForm = () => {
       {deactivated && (
         <div className="mt-4 rounded-lg bg-fail-soft p-3 text-sm font-medium text-fail">
           This account is no longer active.
+        </div>
+      )}
+
+      {misconfigured && (
+        <div className="mt-4 space-y-1 rounded-lg bg-fail-soft p-3">
+          <p className="text-sm font-medium text-fail">This app is not configured yet.</p>
+          <p className="text-xs text-sub">
+            The Supabase environment variables are missing on the server. Add them in
+            Vercel under Settings &rarr; Environment Variables, then redeploy.
+          </p>
         </div>
       )}
 

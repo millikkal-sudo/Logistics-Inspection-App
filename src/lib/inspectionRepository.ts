@@ -102,6 +102,7 @@ export const submitInspection = async (
     .insert({
       van_id: submission.vanId,
       driver_id: submission.driverId,
+      area_id: submission.areaId ?? null,
       inspector_id: inspector.id,
       status,
       dispatch_blocked: blocked,
@@ -177,7 +178,8 @@ type SummaryRow = {
   id: string;
   performed_at: string;
   plate: string;
-  depot: string;
+  area_name: string;
+  area_id: string | null;
   driver_name: string;
   inspector_name: string;
   status: InspectionStatus;
@@ -186,12 +188,24 @@ type SummaryRow = {
   temp_reading_c: number | null;
 };
 
-export const listInspectionsSince = async (since: Date): Promise<InspectionSummary[]> => {
-  const { data, error } = await serviceClient()
+export const listInspectionsSince = async (
+  since: Date,
+  options: { until?: Date; areaId?: string } = {},
+): Promise<InspectionSummary[]> => {
+  let query = serviceClient()
     .from('v_inspection_summary')
     .select('*')
     .gte('performed_at', since.toISOString())
     .order('performed_at', { ascending: false });
+
+  if (options.until !== undefined) {
+    query = query.lte('performed_at', options.until.toISOString());
+  }
+  if (options.areaId !== undefined) {
+    query = query.eq('area_id', options.areaId);
+  }
+
+  const { data, error } = await query;
 
   if (error !== null) {
     throw new Error(`Could not load the report: ${error.message}`);
@@ -201,7 +215,7 @@ export const listInspectionsSince = async (since: Date): Promise<InspectionSumma
     id: row.id,
     performedAt: row.performed_at,
     plate: row.plate,
-    depot: row.depot,
+    areaName: row.area_name,
     driverName: row.driver_name,
     inspectorName: row.inspector_name,
     status: row.status,

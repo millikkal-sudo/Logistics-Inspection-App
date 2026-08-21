@@ -5,6 +5,7 @@ import { uploadPhoto } from '@/lib/supabaseBrowser';
 import type { FleetEntry } from '@/lib/fleetRepository';
 import {
   resolveStatus,
+  type Area,
   type CheckAnswer,
   type CheckItem,
   type InspectionStatus,
@@ -28,7 +29,7 @@ type Outcome = {
   time: string;
 };
 
-type Screen = 'vans' | 'check' | 'outcome' | 'report';
+type Screen = 'areas' | 'vans' | 'check' | 'outcome' | 'report';
 
 const STATUS_META: Record<InspectionStatus, { label: string; text: string; bg: string; solid: string }> = {
   compliant: { label: 'Cleared', text: 'text-pass', bg: 'bg-pass-soft', solid: 'bg-pass' },
@@ -41,13 +42,23 @@ const clockTime = (): string =>
 
 type Props = {
   profile: Profile;
+  areas: Area[];
   fleet: FleetEntry[];
   checkItems: CheckItem[];
   initialToday: InspectionSummary[];
+  canManage: boolean;
 };
 
-export const VanCheckApp = ({ profile, fleet, checkItems, initialToday }: Props) => {
-  const [screen, setScreen] = useState<Screen>('vans');
+export const VanCheckApp = ({
+  profile,
+  areas,
+  fleet,
+  checkItems,
+  initialToday,
+  canManage,
+}: Props) => {
+  const [screen, setScreen] = useState<Screen>('areas');
+  const [area, setArea] = useState<Area | null>(null);
   const [today, setToday] = useState<InspectionSummary[]>(initialToday);
   const [van, setVan] = useState<FleetEntry | null>(null);
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
@@ -133,7 +144,12 @@ export const VanCheckApp = ({ profile, fleet, checkItems, initialToday }: Props)
       const response = await fetch('/api/inspections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vanId: van.vanId, driverId: van.driverId, answers: payload }),
+        body: JSON.stringify({
+          vanId: van.vanId,
+          driverId: van.driverId,
+          areaId: area?.id,
+          answers: payload,
+        }),
       });
 
       if (!response.ok) {
@@ -160,7 +176,7 @@ export const VanCheckApp = ({ profile, fleet, checkItems, initialToday }: Props)
           id: `${van.vanId}-${time}`,
           performedAt: new Date().toISOString(),
           plate: van.plate,
-          depot: profile.depot,
+          areaName: area?.name ?? 'Unassigned',
           driverName: van.driverName,
           inspectorName: profile.fullName,
           status,
@@ -182,15 +198,34 @@ export const VanCheckApp = ({ profile, fleet, checkItems, initialToday }: Props)
   return (
     <div className="flex min-h-screen items-start justify-center px-3 py-6">
       <div className="w-full max-w-md overflow-hidden rounded-2xl bg-steel shadow-2xl">
-        {screen === 'vans' && (
+        {screen === 'areas' && (
+          <AreaList
+            profile={profile}
+            areas={areas}
+            fleet={fleet}
+            today={today}
+            canManage={canManage}
+            onPick={(picked) => {
+              setArea(picked);
+              setScreen('vans');
+            }}
+          />
+        )}
+
+        {screen === 'vans' && area !== null && (
           <VanList
             profile={profile}
-            fleet={fleet}
+            area={area}
+            fleet={fleet.filter((entry) => entry.areaId === area.id)}
             checkedPlates={checkedPlates}
             query={query}
             onQuery={setQuery}
             onPick={startVan}
             onReport={() => setScreen('report')}
+            onBack={() => {
+              setArea(null);
+              setScreen('areas');
+            }}
           />
         )}
 
@@ -282,24 +317,97 @@ const Chip = ({ status }: { status: InspectionStatus }) => {
   );
 };
 
+/* ----------------------------- area list ----------------------------- */
+
+const AreaList = ({
+  profile,
+  areas,
+  fleet,
+  today,
+  canManage,
+  onPick,
+}: {
+  profile: Profile;
+  areas: Area[];
+  fleet: FleetEntry[];
+  today: InspectionSummary[];
+  canManage: boolean;
+  onPick: (area: Area) => void;
+}) => (
+  <div>
+    <Header
+      eyebrow={profile.fullName}
+      title="Which area?"
+      sub={`${today.length} checked across the UAE this morning`}
+    />
+    <div className="space-y-3 p-4">
+      {areas.map((area) => {
+        const vansHere = fleet.filter((entry) => entry.areaId === area.id).length;
+        const doneHere = today.filter((record) => record.areaName === area.name).length;
+        const allDone = vansHere > 0 && doneHere >= vansHere;
+
+        return (
+          <button
+            key={area.id}
+            type="button"
+            onClick={() => onPick(area)}
+            disabled={vansHere === 0}
+            className="flex w-full items-center gap-3 rounded-xl border border-line bg-white p-4 text-left active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
+          >
+            <div
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white ${
+                allDone ? 'bg-pass' : 'bg-fleet'
+              }`}
+            >
+              {area.code}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-bold text-ink">{area.name}</div>
+              <div className="text-xs text-sub">
+                {vansHere === 0
+                  ? 'No vans assigned yet'
+                  : `${doneHere} of ${vansHere} checked`}
+              </div>
+            </div>
+            {vansHere > 0 && <span className="text-lg text-fleet">›</span>}
+          </button>
+        );
+      })}
+
+      {canManage && (
+        <a
+          href="/admin"
+          className="block w-full rounded-xl border border-line bg-white py-3.5 text-center text-sm font-bold text-fleet"
+        >
+          Manager dashboard
+        </a>
+      )}
+    </div>
+  </div>
+);
+
 /* ----------------------------- van list ----------------------------- */
 
 const VanList = ({
   profile,
+  area,
   fleet,
   checkedPlates,
   query,
   onQuery,
   onPick,
   onReport,
+  onBack,
 }: {
   profile: Profile;
+  area: Area;
   fleet: FleetEntry[];
   checkedPlates: Map<string, InspectionStatus>;
   query: string;
   onQuery: (value: string) => void;
   onPick: (entry: FleetEntry) => void;
   onReport: () => void;
+  onBack: () => void;
 }) => {
   const term = query.toLowerCase();
   const visible = fleet.filter(
@@ -310,9 +418,10 @@ const VanList = ({
   return (
     <div>
       <Header
-        eyebrow={`${profile.depot} · ${profile.fullName}`}
+        eyebrow={`${area.name} · ${profile.fullName}`}
         title="Which van?"
-        sub={`${checkedPlates.size} checked this morning`}
+        sub={`${fleet.length} van${fleet.length === 1 ? '' : 's'} in this area`}
+        onBack={onBack}
       />
       <div className="space-y-3 p-4">
         <input
@@ -358,7 +467,9 @@ const VanList = ({
 
         {visible.length === 0 && (
           <p className="py-8 text-center text-sm text-sub">
-            No van matches that. Check the plate and try again.
+            {fleet.length === 0
+              ? `No vans with an assigned driver in ${area.name}. Add them in the manager dashboard.`
+              : 'No van matches that. Check the plate and try again.'}
           </p>
         )}
 
@@ -765,7 +876,12 @@ const Report = ({
 
   return (
     <div>
-      <Header eyebrow="Today · pre-departure" title="Morning report" sub="Central Warehouse" onBack={onBack} />
+      <Header
+        eyebrow="Today · pre-departure"
+        title="Morning report"
+        sub="All areas"
+        onBack={onBack}
+      />
       <div className="space-y-4 p-4">
         <div className="grid grid-cols-3 gap-2">
           {(Object.keys(counts) as InspectionStatus[]).map((key) => (
@@ -820,7 +936,9 @@ const Report = ({
                       </span>
                     )}
                   </div>
-                  <div className="truncate text-xs text-sub">{record.driverName}</div>
+                  <div className="truncate text-xs text-sub">
+                    {record.areaName} · {record.driverName}
+                  </div>
                 </div>
                 <Chip status={record.status} />
               </div>

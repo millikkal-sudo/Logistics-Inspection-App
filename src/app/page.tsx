@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { VanCheckApp } from '@/components/VanCheckApp';
-import { listFleet } from '@/lib/fleetRepository';
+import { listAreas, listFleet } from '@/lib/fleetRepository';
 import { listCheckItems, listInspectionsSince } from '@/lib/inspectionRepository';
 import { currentProfile, ForbiddenError, UnauthorizedError } from '@/lib/session';
 
@@ -15,14 +15,22 @@ const HomePage = async () => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    const [fleet, checkItems, today] = await Promise.all([
+    const [areas, fleet, checkItems, today] = await Promise.all([
+      listAreas(),
       listFleet(),
       listCheckItems(),
       listInspectionsSince(startOfDay),
     ]);
 
     return (
-      <VanCheckApp profile={profile} fleet={fleet} checkItems={checkItems} initialToday={today} />
+      <VanCheckApp
+        profile={profile}
+        areas={areas}
+        fleet={fleet}
+        checkItems={checkItems}
+        initialToday={today}
+        canManage={profile.role === 'manager' || profile.role === 'admin'}
+      />
     );
   } catch (cause: unknown) {
     if (cause instanceof UnauthorizedError) {
