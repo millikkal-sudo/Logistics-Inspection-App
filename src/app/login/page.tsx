@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { CaloMark } from '@/components/CaloMark';
 import { browserClient } from '@/lib/supabaseBrowser';
 
 /**
@@ -70,12 +71,13 @@ const LoginForm = () => {
   };
 
   return (
-    <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-2xl">
-      <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-sub">
-        Calo UAE · Central Warehouse
+    <div className="w-full max-w-sm rounded-lg bg-surface-card p-8 shadow-3">
+      <CaloMark />
+      <div className="mt-6 text-[11px] font-bold uppercase tracking-[0.16em] text-content-secondary">
+        UAE · Central Warehouse
       </div>
-      <h1 className="mt-1 text-2xl font-bold text-ink">Van check</h1>
-      <p className="mt-2 text-sm text-sub">
+      <h1 className="mt-1 text-3xl font-black text-content-contrast">Van check</h1>
+      <p className="mt-2 text-sm text-content-secondary">
         Pre-departure quality checks for chilled vans.
       </p>
 
@@ -88,7 +90,7 @@ const LoginForm = () => {
       {misconfigured && (
         <div className="mt-4 space-y-1 rounded-lg bg-fail-soft p-3">
           <p className="text-sm font-medium text-fail">This app is not configured yet.</p>
-          <p className="text-xs text-sub">
+          <p className="text-xs text-content-secondary">
             The Supabase environment variables are missing on the server. Add them in
             Vercel under Settings &rarr; Environment Variables, then redeploy.
           </p>
@@ -97,7 +99,7 @@ const LoginForm = () => {
 
       <div className="mt-6 space-y-3">
         <div>
-          <label htmlFor="email" className="text-xs font-bold uppercase tracking-wide text-sub">
+          <label htmlFor="email" className="text-xs font-bold uppercase tracking-wide text-content-secondary">
             Email
           </label>
           <input
@@ -113,12 +115,12 @@ const LoginForm = () => {
                 void signIn();
               }
             }}
-            className="mt-1 w-full rounded-xl border border-line bg-steel px-3 py-3 text-base text-ink outline-none focus:border-fleet"
+            className="mt-1 w-full rounded-xl border border-line bg-surface-page px-3 py-3 text-base text-content outline-none focus:border-brand"
           />
         </div>
 
         <div>
-          <label htmlFor="password" className="text-xs font-bold uppercase tracking-wide text-sub">
+          <label htmlFor="password" className="text-xs font-bold uppercase tracking-wide text-content-secondary">
             Password
           </label>
           <input
@@ -132,7 +134,7 @@ const LoginForm = () => {
                 void signIn();
               }
             }}
-            className="mt-1 w-full rounded-xl border border-line bg-steel px-3 py-3 text-base text-ink outline-none focus:border-fleet"
+            className="mt-1 w-full rounded-xl border border-line bg-surface-page px-3 py-3 text-base text-content outline-none focus:border-brand"
           />
         </div>
       </div>
@@ -147,12 +149,12 @@ const LoginForm = () => {
         type="button"
         onClick={() => void signIn()}
         disabled={busy}
-        className="mt-6 w-full rounded-xl bg-fleet py-4 text-base font-bold text-white disabled:bg-line disabled:text-sub"
+        className="mt-6 w-full rounded-xl bg-brand py-4 text-base font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
       >
         {busy ? 'Signing in…' : 'Sign in'}
       </button>
 
-      <p className="mt-4 text-center text-xs text-sub">
+      <p className="mt-4 text-center text-xs text-content-secondary">
         Your name goes on every check you file. Do not share this login.
       </p>
     </div>
@@ -161,7 +163,7 @@ const LoginForm = () => {
 
 const LoginPage = () => (
   <main className="flex min-h-screen items-center justify-center p-4">
-    <Suspense fallback={<div className="text-sm text-sub">Loading…</div>}>
+    <Suspense fallback={<div className="text-sm text-content-secondary">Loading…</div>}>
       <LoginForm />
     </Suspense>
   </main>
