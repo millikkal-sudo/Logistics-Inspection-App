@@ -18,6 +18,9 @@ const config: Config = {
           tertiary: 'var(--content-tertiary)',
           contrast: 'var(--content-contrast)',
           invert: 'var(--content-invert)',
+          'invert-strong': 'var(--content-invert-strong)',
+          'invert-secondary': 'var(--content-invert-secondary)',
+          'invert-tertiary': 'var(--content-invert-tertiary)',
         },
         surface: {
           page: 'var(--background-elevated)',
@@ -28,6 +31,7 @@ const config: Config = {
           bold: 'var(--fill-brand-bold)',
           DEFAULT: 'var(--fill-brand-regular)',
           light: 'var(--fill-brand-light)',
+          action: 'var(--fill-brand-action)',
           hero: 'var(--brand-50)',
         },
         line: {
@@ -47,6 +51,11 @@ const config: Config = {
           soft: 'var(--fill-warning-weak)',
         },
         disabled: 'var(--fill-disabled)',
+        'invert-subtle': 'var(--fill-invert-subtle)',
+        scrim: {
+          DEFAULT: 'var(--scrim-regular)',
+          strong: 'var(--scrim-strong)',
+        },
       },
       borderRadius: {
         sm: 'var(--radius-sm)',
