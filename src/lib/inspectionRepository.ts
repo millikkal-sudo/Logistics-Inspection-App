@@ -353,3 +353,80 @@ export const getInspectionDetail = async (id: string): Promise<InspectionDetail 
     passedCount,
   };
 };
+
+export type ReportStats = {
+  checks: number;
+  cleared: number;
+  nonCompliant: number;
+  held: number;
+  compliancePct: number;
+  /** Distinct vans inspected at least once in the window. */
+  vansCovered: number;
+  vansActive: number;
+  coveragePct: number;
+  /** Vans that exist and were never inspected in the window. */
+  missedPlates: string[];
+  worstTempC: number | null;
+};
+
+/**
+ * Coverage is the number this dashboard was missing.
+ *
+ * "20 checks" says nothing without the denominator. If the area runs 25
+ * vans, five dispatched unverified, and an uninspected van is a larger
+ * unknown than a failed one: the failure at least got caught.
+ */
+export const getReportStats = async (
+  from: Date,
+  to: Date,
+  areaId?: string,
+): Promise<ReportStats> => {
+  const db = serviceClient();
+
+  const records = await listInspectionsSince(from, {
+    until: to,
+    ...(areaId === undefined ? {} : { areaId }),
+  });
+
+  let vanQuery = db.from('vans').select('plate').eq('active', true);
+  if (areaId !== undefined) {
+    vanQuery = vanQuery.eq('area_id', areaId);
+  }
+
+  const { data: vans, error } = await vanQuery;
+  if (error !== null) {
+    throw new Error(`Could not count the fleet: ${error.message}`);
+  }
+
+  const activePlates = (vans ?? []).map((van: { plate: string }) => van.plate);
+  const coveredPlates = new Set(records.map((record) => record.plate));
+
+  // Only count vans that are still active. A van checked last month and
+  // since retired should not inflate coverage past 100%.
+  const covered = activePlates.filter((plate) => coveredPlates.has(plate));
+  const missed = activePlates.filter((plate) => !coveredPlates.has(plate));
+
+  const cleared = records.filter((record) => record.status === 'compliant').length;
+  const held = records.filter((record) => record.dispatchBlocked).length;
+  const nonCompliant = records.filter((record) => record.status === 'noncompliant').length;
+
+  const temps = records
+    .map((record) => record.tempReadingC)
+    .filter((value): value is number => value !== null);
+
+  const pct = (part: number, whole: number): number =>
+    whole === 0 ? 0 : Math.round((part / whole) * 100);
+
+  return {
+    checks: records.length,
+    cleared,
+    nonCompliant,
+    held,
+    compliancePct: pct(cleared, records.length),
+    vansCovered: covered.length,
+    vansActive: activePlates.length,
+    coveragePct: pct(covered.length, activePlates.length),
+    missedPlates: missed.sort(),
+    worstTempC: temps.length === 0 ? null : Math.max(...temps),
+  };
+};
