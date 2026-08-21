@@ -31,6 +31,9 @@ export const POST = async (request: Request): Promise<NextResponse> => {
         areaId,
         areaName,
         ...(typeof payload.note === 'string' ? { note: payload.note } : {}),
+        // Taken from the request rather than an env var, so the link is
+        // right on preview deployments as well as production.
+        origin: new URL(request.url).origin,
       },
       profile,
     );
