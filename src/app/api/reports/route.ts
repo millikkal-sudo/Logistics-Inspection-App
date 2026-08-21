@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getReportStats, listInspectionsSince } from '@/lib/inspectionRepository';
+import { getTrainingInsight } from '@/lib/trainingInsight';
 import { currentProfile, ForbiddenError, requireRole, UnauthorizedError } from '@/lib/session';
 
 /**
@@ -103,12 +104,13 @@ export const GET = async (request: Request): Promise<NextResponse> => {
     const previousTo = new Date(from.getTime() - 1);
     const previousFrom = new Date(previousTo.getTime() - spanMs);
 
-    const [stats, previous] = await Promise.all([
+    const [stats, previous, insight] = await Promise.all([
       getReportStats(from, to, areaId),
       getReportStats(previousFrom, previousTo, areaId),
+      getTrainingInsight(from, to, areaId),
     ]);
 
-    return NextResponse.json({ records, stats, previous });
+    return NextResponse.json({ records, stats, previous, insight });
   } catch (cause: unknown) {
     if (cause instanceof UnauthorizedError) {
       return NextResponse.json({ error: cause.message }, { status: 401 });
