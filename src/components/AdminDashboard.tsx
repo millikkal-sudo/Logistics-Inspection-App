@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CaloMark } from './CaloMark';
-import { PlateScanner } from './PlateScanner';
+import { PlateScanner, type PlateReading } from './PlateScanner';
 import type { Area, Driver, InspectionStatus, Van } from '@/lib/types';
 
 type Tab = 'reports' | 'areas' | 'vans' | 'drivers';
@@ -910,7 +910,18 @@ const VansTab = ({
             </select>
           </Field>
           <div className="self-end">
-            <PlateScanner onDetected={setPlate} />
+            <PlateScanner
+              onDetected={(reading: PlateReading) => {
+                setPlate(reading.best);
+                // The plate names its emirate, so the area does not need
+                // choosing twice.
+                const match = areas.find((area) => area.code === reading.emirateCode);
+                if (match !== undefined) {
+                  setAreaId(match.id);
+                }
+              }}
+              onPick={setPlate}
+            />
           </div>
           <button
             type="button"
