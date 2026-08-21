@@ -368,7 +368,7 @@ const drawEvidence = async (
       cursor = ensure(doc, cursor, 30);
 
       cursor.page.drawText(
-        `${failure.label}${failure.critical ? '  (blocked dispatch)' : ''}`,
+        `${failure.label}${failure.causeLabel === null ? '' : `: ${failure.causeLabel}`}${failure.critical ? '  (blocked dispatch)' : ''}`,
         {
           x: MARGIN,
           y: cursor.y,
