@@ -106,10 +106,11 @@ export const VanCheckApp = ({
   const failures = checkItems.filter((item) => merged[item.code]?.passed === false);
   const incomplete = failures.filter((item) => {
     const answer = merged[item.code];
+    const causeNeeded = causes.some((cause) => cause.checkItemId === item.id);
     return (
       answer?.photoKey === undefined ||
       (answer.note ?? '').trim() === '' ||
-      answer.causeId === undefined
+      (causeNeeded && answer.causeId === undefined)
     );
   });
   const uploading = Object.values(merged).some((answer) => answer.uploading === true);
