@@ -2,11 +2,98 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   CALO HEALTHY UI — DESIGN TOKENS
+   Mirrors the Healthy UI Figma library, (c) CALO 2025, v1.0.0.
+   Single source of truth. Never hardcode a hex value in a component; use the
+   semantic tokens below, exposed through Tailwind in tailwind.config.ts.
+   ========================================================================== */
+
+:root {
+  /* --- Primitives: brand ramp. brand-50 is the hero green. --- */
+  --brand-90: #114B34;
+  --brand-80: #166144;
+  --brand-70: #1C7E57;
+  --brand-60: #24A170;
+  --brand-50: #28B17B;
+  --brand-40: #53C195;
+  --brand-30: #6FCBA7;
+  --brand-20: #9CDBC2;
+  --brand-10: #BCE7D6;
+  --brand-5:  #EAF7F2;
+
+  /* --- Primitives: base ramp --- */
+  --base-100: #000000;
+  --base-90:  #191C1F;
+  --base-80:  #343B42;
+  --base-70:  #697886;
+  --base-60:  #818F9C;
+  --base-50:  #BDC4CB;
+  --base-40:  #DDE0E4;
+  --base-30:  #EBEDEF;
+  --base-20:  #F5F6F7;
+  --base-10:  #F9FAFB;
+  --base-0:   #FFFFFF;
+
+  /* --- Primitives: system --- */
+  --system-error-3:   #E35044;
+  --system-error-2:   #E45A4E;
+  --system-error-1:   #FEF3F2;
+  --system-warning-3: #DC6803;
+  --system-warning-2: #F79009;
+  --system-warning-1: #FFFAEB;
+  --system-success-3: #24A170;
+  --system-success-2: #28B17B;
+  --system-success-1: #EAF7F2;
+
+  /* --- Semantic: content --- */
+  --content-primary:   var(--base-80);
+  --content-secondary: var(--base-70);
+  --content-tertiary:  var(--base-50);
+  --content-contrast:  var(--base-90);
+  --content-invert:    var(--base-0);
+  --content-link:      var(--brand-60);
+
+  /* --- Semantic: surfaces --- */
+  --background-white:    var(--base-10);
+  --background-elevated: var(--base-20);
+  --fill-white:          var(--base-0);
+  --fill-brand-bold:     var(--brand-90);
+  --fill-brand-regular:  var(--brand-60);
+  --fill-brand-light:    var(--brand-5);
+  --fill-disabled:       var(--base-40);
+  --fill-error-strong:   var(--system-error-3);
+  --fill-error-weak:     var(--system-error-1);
+  --fill-warning-strong: var(--system-warning-3);
+  --fill-warning-weak:   var(--system-warning-1);
+  --fill-success-strong: var(--system-success-3);
+  --fill-success-weak:   var(--system-success-1);
+
+  /* --- Semantic: border --- */
+  --border-default: var(--base-40);
+  --border-brand:   var(--brand-60);
+  --border-error:   var(--system-error-3);
+
+  /* --- Radius --- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+
+  /* --- Elevation --- */
+  --elevation-1: 0 1px 2px rgba(25, 28, 31, 0.06), 0 1px 3px rgba(25, 28, 31, 0.08);
+  --elevation-2: 0 4px 8px rgba(25, 28, 31, 0.06), 0 2px 4px rgba(25, 28, 31, 0.06);
+  --elevation-3: 0 12px 24px rgba(25, 28, 31, 0.10), 0 4px 8px rgba(25, 28, 31, 0.06);
+}
+
 html,
 body {
-  background: #c9d4dc;
+  background: var(--background-elevated);
+  color: var(--content-primary);
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Healthy Sans is proprietary and will not be present on a supervisor's
+   phone. Inter is the documented fallback and renders on brand adjacent. */
 
 @media (prefers-reduced-motion: reduce) {
   *,
