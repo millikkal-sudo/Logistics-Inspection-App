@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CaloMark } from './CaloMark';
 import { PlateScanner } from './PlateScanner';
@@ -174,12 +174,82 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
 
 /* ------------------------------ reports ------------------------------ */
 
+type Stats = {
+  checks: number;
+  cleared: number;
+  nonCompliant: number;
+  held: number;
+  compliancePct: number;
+  vansCovered: number;
+  vansActive: number;
+  coveragePct: number;
+  missedPlates: string[];
+  worstTempC: number | null;
+};
+
+type ReportPayload = { records: ReportRow[]; stats: Stats; previous: Stats };
+
+type PresetKey = 'today' | 'week' | 'last7' | 'month' | 'lastMonth' | 'custom';
+
+const iso = (date: Date): string => {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+};
+
+/**
+ * Presets rather than two typed date fields. Picking a range was friction
+ * on every single visit, and the page opened on zeros because nothing was
+ * selected. This week is the default so it is useful on load.
+ */
+const resolvePreset = (key: PresetKey): { from: string; to: string } | null => {
+  const now = new Date();
+
+  if (key === 'today') {
+    return { from: iso(now), to: iso(now) };
+  }
+  if (key === 'week') {
+    const monday = new Date(now);
+    // getDay() is 0 on Sunday, which belongs to the week just ended.
+    const offset = (now.getDay() + 6) % 7;
+    monday.setDate(now.getDate() - offset);
+    return { from: iso(monday), to: iso(now) };
+  }
+  if (key === 'last7') {
+    const start = new Date(now);
+    start.setDate(now.getDate() - 6);
+    return { from: iso(start), to: iso(now) };
+  }
+  if (key === 'month') {
+    return { from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(now) };
+  }
+  if (key === 'lastMonth') {
+    return {
+      from: iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+      to: iso(new Date(now.getFullYear(), now.getMonth(), 0)),
+    };
+  }
+  return null;
+};
+
+const PRESETS: { key: PresetKey; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'This week' },
+  { key: 'last7', label: 'Last 7 days' },
+  { key: 'month', label: 'This month' },
+  { key: 'lastMonth', label: 'Last month' },
+  { key: 'custom', label: 'Custom' },
+];
+
 const Reports = ({ areas }: { areas: Area[] }) => {
-  const [from, setFrom] = useState(isoDaysAgo(7));
-  const [to, setTo] = useState(isoDaysAgo(0));
+  const initial = resolvePreset('week') ?? { from: iso(new Date()), to: iso(new Date()) };
+
+  const [preset, setPreset] = useState<PresetKey>('week');
+  const [from, setFrom] = useState(initial.from);
+  const [to, setTo] = useState(initial.to);
   const [areaId, setAreaId] = useState('');
-  const [rows, setRows] = useState<ReportRow[] | null>(null);
+  const [data, setData] = useState<ReportPayload | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showMissed, setShowMissed] = useState(false);
 
   const params = (): string => {
     const search = new URLSearchParams({ from, to });
@@ -189,84 +259,186 @@ const Reports = ({ areas }: { areas: Area[] }) => {
     return search.toString();
   };
 
-  const load = async (): Promise<void> => {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/reports?${params()}`);
-      setRows(response.ok ? ((await response.json()) as ReportRow[]) : []);
-    } finally {
-      setLoading(false);
+  const load = useCallback(
+    async (nextFrom: string, nextTo: string, nextArea: string): Promise<void> => {
+      setLoading(true);
+      try {
+        const search = new URLSearchParams({ from: nextFrom, to: nextTo });
+        if (nextArea !== '') {
+          search.set('areaId', nextArea);
+        }
+        const response = await fetch(`/api/reports?${search.toString()}`);
+        setData(response.ok ? ((await response.json()) as ReportPayload) : null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  // Load on mount and whenever the window changes, so the page is never
+  // sitting on stale zeros waiting for a button press.
+  useEffect(() => {
+    void load(from, to, areaId);
+  }, [from, to, areaId, load]);
+
+  const choosePreset = (key: PresetKey): void => {
+    setPreset(key);
+    const range = resolvePreset(key);
+    if (range !== null) {
+      setFrom(range.from);
+      setTo(range.to);
     }
   };
 
-  const held = rows?.filter((row) => row.dispatchBlocked).length ?? 0;
-  const cleared = rows?.filter((row) => row.status === 'compliant').length ?? 0;
+
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-surface-card p-4">
-        <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
-          From
-          <input
-            type="date"
-            value={from}
-            onChange={(event) => setFrom(event.target.value)}
-            className="mt-1 block rounded-lg border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
-          />
-        </label>
+      <div className="rounded-md border border-line bg-surface-card p-4">
+        <div className="flex flex-wrap gap-2">
+          {PRESETS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => choosePreset(option.key)}
+              className={`rounded-full px-4 py-2 text-sm font-bold ${
+                preset === option.key
+                  ? 'bg-brand-action text-content-invert'
+                  : 'bg-surface-page text-content-secondary'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
 
-        <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
-          To
-          <input
-            type="date"
-            value={to}
-            onChange={(event) => setTo(event.target.value)}
-            className="mt-1 block rounded-lg border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
-          />
-        </label>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          {preset === 'custom' && (
+            <>
+              <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
+                From
+                <input
+                  type="date"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                  className="mt-1 block rounded-sm border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
+                />
+              </label>
+              <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
+                To
+                <input
+                  type="date"
+                  value={to}
+                  onChange={(event) => setTo(event.target.value)}
+                  className="mt-1 block rounded-sm border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
+                />
+              </label>
+            </>
+          )}
 
-        <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
-          Area
-          <select
-            value={areaId}
-            onChange={(event) => setAreaId(event.target.value)}
-            className="mt-1 block rounded-lg border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
+          <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
+            Area
+            <select
+              value={areaId}
+              onChange={(event) => setAreaId(event.target.value)}
+              className="mt-1 block rounded-sm border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
+            >
+              <option value="">All areas</option>
+              {areas.map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <a
+            href={`/api/reports?${params()}&format=csv`}
+            className="rounded-sm border border-line px-5 py-2.5 text-sm font-bold text-brand"
           >
-            <option value="">All areas</option>
-            {areas.map((area) => (
-              <option key={area.id} value={area.id}>
-                {area.name}
-              </option>
-            ))}
-          </select>
-        </label>
+            Download CSV
+          </a>
 
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          className="rounded-lg bg-brand-action px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
-        >
-          {loading ? 'Loading…' : 'Run report'}
-        </button>
-
-        <a
-          href={`/api/reports?${params()}&format=csv`}
-          className="rounded-lg border border-line px-5 py-2.5 text-sm font-bold text-brand"
-        >
-          Download CSV
-        </a>
+          <span className="text-xs text-content-secondary">
+            {loading ? 'Loading…' : `${from} to ${to}`}
+          </span>
+        </div>
       </div>
 
-      {rows !== null && (
+      {data !== null && (
         <>
-          <div className="grid grid-cols-3 gap-3">
-            <Tile label="Checks" value={rows.length} tone="text-content" bg="bg-surface-card" />
-            <Tile label="Cleared" value={cleared} tone="text-pass" bg="bg-pass-soft" />
-            <Tile label="Dispatch held" value={held} tone="text-hold" bg="bg-hold-soft" />
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Tile
+              label="Fleet covered"
+              value={`${data.stats.coveragePct}%`}
+              caption={`${data.stats.vansCovered} of ${data.stats.vansActive} active vans`}
+              delta={data.stats.coveragePct - data.previous.coveragePct}
+              tone={data.stats.coveragePct >= 95 ? 'pass' : data.stats.coveragePct >= 80 ? 'hold' : 'fail'}
+            />
+            <Tile
+              label="Compliance"
+              value={`${data.stats.compliancePct}%`}
+              caption={`${data.stats.cleared} cleared of ${data.stats.checks} checked`}
+              delta={data.stats.compliancePct - data.previous.compliancePct}
+              tone={data.stats.compliancePct >= 90 ? 'pass' : data.stats.compliancePct >= 70 ? 'hold' : 'fail'}
+            />
+            <Tile
+              label="Dispatch held"
+              value={String(data.stats.held)}
+              caption={`${data.stats.nonCompliant} non-compliant`}
+              delta={data.previous.held - data.stats.held}
+              tone={data.stats.held === 0 ? 'pass' : 'hold'}
+            />
+            <Tile
+              label="Highest temp"
+              value={data.stats.worstTempC === null ? '—' : `${data.stats.worstTempC.toFixed(1)}°C`}
+              caption="An average hides the one hot van"
+              tone={
+                data.stats.worstTempC === null || data.stats.worstTempC <= 5
+                  ? 'pass'
+                  : 'fail'
+              }
+            />
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-line bg-surface-card">
+          {data.stats.missedPlates.length > 0 && (
+            <div className="rounded-md border border-line bg-hold-soft p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-bold text-hold">
+                    {data.stats.missedPlates.length} van
+                    {data.stats.missedPlates.length === 1 ? '' : 's'} never inspected in this period
+                  </div>
+                  <p className="mt-0.5 text-xs text-content-secondary">
+                    An uninspected van is a bigger unknown than a failed one.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMissed(!showMissed)}
+                  className="rounded-sm border border-line bg-surface-card px-4 py-2 text-xs font-bold text-content"
+                >
+                  {showMissed ? 'Hide' : 'Show plates'}
+                </button>
+              </div>
+
+              {showMissed && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {data.stats.missedPlates.map((plate) => (
+                    <span
+                      key={plate}
+                      className="rounded-full bg-surface-card px-3 py-1 text-xs font-bold text-content"
+                    >
+                      {plate}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="overflow-x-auto rounded-md border border-line bg-surface-card">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-line text-[11px] uppercase tracking-wide text-content-secondary">
                 <tr>
@@ -279,13 +451,13 @@ const Reports = ({ areas }: { areas: Area[] }) => {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {data.records.map((row) => (
                   <InspectionRow key={row.id} row={row} />
                 ))}
               </tbody>
             </table>
 
-            {rows.length === 0 && (
+            {data.records.length === 0 && (
               <p className="p-8 text-center text-sm text-content-secondary">
                 No checks in that range.
               </p>
@@ -299,7 +471,7 @@ const Reports = ({ areas }: { areas: Area[] }) => {
 
 /**
  * A row that expands to show the evidence. Only failed checks have
- * anything to show, so a fully compliant inspection does not expand —
+ * anything to show, so a fully compliant inspection does not expand:
  * an empty panel is a worse answer than no panel.
  */
 const InspectionRow = ({ row }: { row: ReportRow }) => {
@@ -348,7 +520,10 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
           {row.plate}
           {hasDetail && (
             <span className="ml-2 text-xs font-normal text-brand">
-              {open ? '\u25be' : '\u25b8'} {row.failedCount > 0 ? `${row.failedCount} issue${row.failedCount > 1 ? 's' : ''}` : 'note'}
+              {open ? '\u25be' : '\u25b8'}{' '}
+              {row.failedCount > 0
+                ? `${row.failedCount} issue${row.failedCount > 1 ? 's' : ''}`
+                : 'note'}
             </span>
           )}
         </td>
@@ -358,7 +533,9 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
             <span className="text-xs text-content-secondary"> + {row.helperName}</span>
           )}
         </td>
-        <td className={`px-4 py-3 tabular-nums ${row.tempReadingC === null ? 'text-content-secondary' : ''}`}>
+        <td
+          className={`px-4 py-3 tabular-nums ${row.tempReadingC === null ? 'text-content-secondary' : ''}`}
+        >
           {row.tempReadingC === null ? '\u2014' : `${row.tempReadingC.toFixed(1)}\u00b0C`}
         </td>
         <td className="px-4 py-3">
@@ -378,10 +555,7 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
             {detail !== null && (
               <div className="space-y-4">
                 {detail.failures.map((failure) => (
-                  <div
-                    key={failure.label}
-                    className="rounded-xl border border-line bg-surface-card p-4"
-                  >
+                  <div key={failure.label} className="rounded-md border border-line bg-surface-card p-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-bold text-content">{failure.label}</span>
                       {failure.critical && (
@@ -400,7 +574,7 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
                       <p className="mt-1 text-sm text-content-secondary">{failure.note}</p>
                     )}
 
-                    {failure.photoUrls.length > 0 && (
+                    {failure.photoUrls.length > 0 ? (
                       <div className="mt-3 flex flex-wrap gap-3">
                         {failure.photoUrls.map((url) => (
                           <a key={url} href={url} target="_blank" rel="noreferrer">
@@ -408,31 +582,29 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
                             <img
                               src={url}
                               alt={`Evidence for ${failure.label}`}
-                              className="h-40 w-40 rounded-lg border border-line object-cover"
+                              className="h-40 w-40 rounded-sm border border-line object-cover"
                             />
                           </a>
                         ))}
                       </div>
-                    )}
-
-                    {failure.photoUrls.length === 0 && (
+                    ) : (
                       <p className="mt-2 text-xs text-hold">No photo attached.</p>
                     )}
                   </div>
                 ))}
 
                 {detail.notes !== null && detail.notes !== '' && (
-                  <div className="rounded-xl border border-line bg-surface-card p-4">
+                  <div className="rounded-md border border-line bg-surface-card p-4">
                     <div className="text-[11px] font-bold uppercase tracking-wide text-content-secondary">
-                      Inspector\u2019s notes
+                      Inspector&rsquo;s notes
                     </div>
                     <p className="mt-1 text-sm text-content">{detail.notes}</p>
                   </div>
                 )}
 
                 <p className="text-xs text-content-secondary">
-                  {detail.passedCount} check{detail.passedCount === 1 ? '' : 's'} passed \u00b7
-                  recorded by {detail.inspectorName}. Photo links expire after an hour.
+                  {detail.passedCount} check{detail.passedCount === 1 ? '' : 's'} passed, recorded
+                  by {detail.inspectorName}. Photo links expire after an hour.
                 </p>
               </div>
             )}
@@ -443,22 +615,54 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
   );
 };
 
+const TONES = {
+  pass: { text: 'text-pass', bg: 'bg-pass-soft' },
+  hold: { text: 'text-hold', bg: 'bg-hold-soft' },
+  fail: { text: 'text-fail', bg: 'bg-fail-soft' },
+} as const;
+
+/**
+ * A figure with no baseline is decoration. Every tile carries the same
+ * figure for the preceding window of equal length.
+ */
 const Tile = ({
   label,
   value,
+  caption,
+  delta,
   tone,
-  bg,
 }: {
   label: string;
-  value: number;
-  tone: string;
-  bg: string;
-}) => (
-  <div className={`rounded-xl border border-line p-4 ${bg}`}>
-    <div className={`text-3xl font-bold ${tone}`}>{value}</div>
-    <div className="text-[11px] font-bold uppercase tracking-wide text-content-secondary">{label}</div>
-  </div>
-);
+  value: string;
+  caption: string;
+  delta?: number;
+  tone: keyof typeof TONES;
+}) => {
+  const meta = TONES[tone];
+  const rounded = delta === undefined ? 0 : Math.round(delta);
+
+  return (
+    <div className={`rounded-md border border-line p-4 ${meta.bg}`}>
+      <div className="text-[11px] font-bold uppercase tracking-wide text-content-secondary">
+        {label}
+      </div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className={`text-4xl font-black ${meta.text}`}>{value}</span>
+        {delta !== undefined && rounded !== 0 && (
+          <span
+            className={`text-xs font-bold ${rounded > 0 ? 'text-pass' : 'text-fail'}`}
+          >
+            {rounded > 0 ? '▲' : '▼'} {Math.abs(rounded)} vs previous
+          </span>
+        )}
+        {delta !== undefined && rounded === 0 && (
+          <span className="text-xs font-bold text-content-secondary">no change</span>
+        )}
+      </div>
+      <div className="mt-1 text-xs text-content-secondary">{caption}</div>
+    </div>
+  );
+};
 
 /* ------------------------------- shared ------------------------------- */
 
