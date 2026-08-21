@@ -9,7 +9,7 @@ import {
 import { ValidationError } from '@/lib/inspectionRepository';
 import { currentProfile, ForbiddenError, requireRole, UnauthorizedError } from '@/lib/session';
 
-const ENTITIES: Entity[] = ['areas', 'vans', 'drivers'];
+const ENTITIES: Entity[] = ['areas', 'vans', 'drivers', 'causes'];
 
 const isEntity = (value: string): value is Entity => ENTITIES.includes(value as Entity);
 
