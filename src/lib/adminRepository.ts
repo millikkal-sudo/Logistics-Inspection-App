@@ -11,7 +11,7 @@ import type { Profile } from './types';
  * supervisor's list.
  */
 
-export type Entity = 'areas' | 'vans' | 'drivers';
+export type Entity = 'areas' | 'vans' | 'drivers' | 'causes';
 
 const requireText = (value: unknown, field: string): string => {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -71,10 +71,34 @@ const buildDriverRow = (payload: Payload): Payload => {
   };
 };
 
+const CATEGORIES = ['supply', 'standards', 'wear', 'equipment', 'behaviour', 'other'];
+
+/**
+ * The category is never shown to the inspector. It is what lets a report
+ * tell a stores problem from a training one.
+ */
+const buildCauseRow = (payload: Payload): Payload => {
+  const category = typeof payload.category === 'string' ? payload.category : 'other';
+  if (!CATEGORIES.includes(category)) {
+    throw new ValidationError(`Unknown category: ${category}`);
+  }
+  const checkItemId = optionalUuid(payload.checkItemId);
+  if (checkItemId === null) {
+    throw new ValidationError('Choose which check this cause belongs to');
+  }
+  return {
+    check_item_id: checkItemId,
+    label: requireText(payload.label, 'Cause'),
+    category,
+    sort_order: typeof payload.sortOrder === 'number' ? payload.sortOrder : 50,
+  };
+};
+
 const BUILDERS: Record<Entity, (payload: Payload) => Payload> = {
   areas: buildAreaRow,
   vans: buildVanRow,
   drivers: buildDriverRow,
+  causes: buildCauseRow,
 };
 
 const audit = async (
@@ -217,6 +241,15 @@ const findBlockers = async (entity: Entity, id: string): Promise<Blocker[]> => {
     }
   }
 
+  if (entity === 'causes') {
+    const used = await countRows('inspection_results', 'cause_id', id);
+    if (used > 0) {
+      blockers.push({
+        reason: `it has been recorded on ${used} failed check${used === 1 ? '' : 's'}`,
+      });
+    }
+  }
+
   if (entity === 'areas') {
     const inspections = await countRows('inspections', 'area_id', id);
     if (inspections > 0) {
@@ -243,6 +276,7 @@ const LABELS: Record<Entity, string> = {
   areas: 'area',
   vans: 'van',
   drivers: 'person',
+  causes: 'cause',
 };
 
 export const deleteRecord = async (
