@@ -354,10 +354,10 @@ const Reports = ({ areas }: { areas: Area[] }) => {
           </label>
 
           <a
-            href={`/api/reports?${params()}&format=csv`}
-            className="rounded-sm border border-line px-5 py-2.5 text-sm font-bold text-brand"
+            href={`/api/reports/pdf?${params()}`}
+            className="rounded-sm bg-brand-action px-5 py-2.5 text-sm font-bold text-content-invert"
           >
-            Download CSV
+            Download PDF
           </a>
 
           <span className="text-xs text-content-secondary">
