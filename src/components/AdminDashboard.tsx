@@ -103,14 +103,14 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
         </div>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-content-invert/60">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-content-invert-secondary">
               UAE · Manager view
             </div>
             <h1 className="text-2xl font-black text-content-invert">Van check admin</h1>
           </div>
           <a
             href="/"
-            className="rounded-lg bg-content-invert/15 px-3 py-2 text-xs font-bold text-content-invert"
+            className="rounded-lg bg-invert-subtle px-3 py-2 text-xs font-bold text-content-invert"
           >
             Back to checks
           </a>
@@ -123,7 +123,7 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
               type="button"
               onClick={() => setTab(key)}
               className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold capitalize ${
-                tab === key ? 'bg-content-invert text-brand-bold' : 'text-content-invert/70'
+                tab === key ? 'bg-content-invert text-brand-bold' : 'text-content-invert-secondary'
               }`}
             >
               {key}
@@ -245,7 +245,7 @@ const Reports = ({ areas }: { areas: Area[] }) => {
           type="button"
           onClick={() => void load()}
           disabled={loading}
-          className="rounded-lg bg-brand px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
+          className="rounded-lg bg-brand-action px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
         >
           {loading ? 'Loading…' : 'Run report'}
         </button>
@@ -614,7 +614,7 @@ const AreasTab = ({
               type="button"
               onClick={() => void add()}
               disabled={busy}
-              className="rounded-lg bg-brand px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
+              className="rounded-lg bg-brand-action px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
             >
               Add
             </button>
@@ -712,7 +712,7 @@ const VansTab = ({
             type="button"
             onClick={() => void add()}
             disabled={busy}
-            className="rounded-lg bg-brand px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
+            className="rounded-lg bg-brand-action px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
           >
             Add
           </button>
@@ -818,7 +818,7 @@ const DriversTab = ({
               type="button"
               onClick={() => setStaffRole(role)}
               className={`rounded-lg px-4 py-2 text-sm font-bold capitalize ${
-                staffRole === role ? 'bg-brand text-content-invert' : 'bg-surface-page text-content-secondary'
+                staffRole === role ? 'bg-brand-action text-content-invert' : 'bg-surface-page text-content-secondary'
               }`}
             >
               {role}
@@ -890,7 +890,7 @@ const DriversTab = ({
             type="button"
             onClick={() => void add()}
             disabled={busy || (staffRole === 'helper' && partnerId === '')}
-            className="rounded-lg bg-brand px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
+            className="rounded-lg bg-brand-action px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
           >
             Add
           </button>
