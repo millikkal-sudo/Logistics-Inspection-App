@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { AdminDashboard } from '@/components/AdminDashboard';
-import { listAreas, listDrivers, listVans } from '@/lib/fleetRepository';
+import { listAreas, listCauses, listDrivers, listVans } from '@/lib/fleetRepository';
+import { listCheckItems } from '@/lib/inspectionRepository';
 import { currentProfile, ForbiddenError, UnauthorizedError } from '@/lib/session';
 
 const AdminPage = async () => {
@@ -13,10 +14,12 @@ const AdminPage = async () => {
 
     // Inactive records are included here — this is the only screen where
     // you can bring one back.
-    const [areas, vans, drivers] = await Promise.all([
+    const [areas, vans, drivers, causes, checkItems] = await Promise.all([
       listAreas(true),
       listVans(true),
       listDrivers(true),
+      listCauses(true),
+      listCheckItems(),
     ]);
 
     return (
@@ -24,6 +27,8 @@ const AdminPage = async () => {
         areas={areas}
         vans={vans}
         drivers={drivers}
+        causes={causes}
+        checkItems={checkItems}
         isAdmin={profile.role === 'admin'}
       />
     );
