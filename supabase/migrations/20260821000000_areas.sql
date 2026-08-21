@@ -74,11 +74,20 @@ update drivers set area_id = (select id from areas where code = 'DXB')
 
 alter table inspections add column if not exists area_id uuid references areas(id);
 
+-- The immutability trigger blocks UPDATE on inspections by design. It is
+-- dropped for this one backfill and recreated immediately, inside the
+-- same transaction, so it is never absent while the app is running.
+drop trigger if exists inspections_immutable on inspections;
+
 update inspections i
    set area_id = v.area_id
   from vans v
  where i.van_id = v.id
    and i.area_id is null;
+
+create trigger inspections_immutable
+  before update or delete on inspections
+  for each row execute function prevent_mutation();
 
 create index if not exists inspections_area_idx
   on inspections (area_id, performed_at desc);
@@ -123,3 +132,11 @@ alter table areas enable row level security;
 drop policy if exists areas_read on areas;
 create policy areas_read on areas
   for select to authenticated using (active);
+
+-- ---------------------------------------------------------------------
+-- Verify the trigger is back. Expected: one row, inspections_immutable.
+-- ---------------------------------------------------------------------
+
+select tgname as restored_trigger
+from pg_trigger
+where tgname = 'inspections_immutable';
