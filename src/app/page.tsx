@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { VanCheckApp } from '@/components/VanCheckApp';
-import { listAreas, listFleet } from '@/lib/fleetRepository';
+import { listAreas, listCauses, listFleet } from '@/lib/fleetRepository';
 import { listCheckItems, listInspectionsSince } from '@/lib/inspectionRepository';
 import { currentProfile, ForbiddenError, UnauthorizedError } from '@/lib/session';
 
@@ -15,10 +15,11 @@ const HomePage = async () => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    const [areas, fleet, checkItems, today] = await Promise.all([
+    const [areas, fleet, checkItems, causes, today] = await Promise.all([
       listAreas(),
       listFleet(),
       listCheckItems(),
+      listCauses(),
       listInspectionsSince(startOfDay),
     ]);
 
@@ -28,6 +29,7 @@ const HomePage = async () => {
         areas={areas}
         fleet={fleet}
         checkItems={checkItems}
+        causes={causes}
         initialToday={today}
         canManage={profile.role === 'manager' || profile.role === 'admin'}
       />
