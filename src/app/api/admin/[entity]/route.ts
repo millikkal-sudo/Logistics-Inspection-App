@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createRecord, setActive, updateRecord, type Entity } from '@/lib/adminRepository';
+import {
+  createRecord,
+  deleteRecord,
+  setActive,
+  updateRecord,
+  type Entity,
+} from '@/lib/adminRepository';
 import { ValidationError } from '@/lib/inspectionRepository';
 import { currentProfile, ForbiddenError, requireRole, UnauthorizedError } from '@/lib/session';
 
@@ -74,6 +80,23 @@ export const PATCH = async (request: Request, context: Context): Promise<NextRes
     }
 
     await updateRecord(auth.entity, id, payload, auth.profile);
+    return NextResponse.json({ ok: true });
+  } catch (cause: unknown) {
+    return errorResponse(cause);
+  }
+};
+
+export const DELETE = async (request: Request, context: Context): Promise<NextResponse> => {
+  try {
+    const { entity } = await context.params;
+    const auth = await authorize(entity);
+
+    const id = new URL(request.url).searchParams.get('id');
+    if (id === null || id === '') {
+      throw new ValidationError('id is required');
+    }
+
+    await deleteRecord(auth.entity, id, auth.profile);
     return NextResponse.json({ ok: true });
   } catch (cause: unknown) {
     return errorResponse(cause);
