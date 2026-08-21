@@ -46,6 +46,12 @@ const parseSubmission = (body: unknown): InspectionSubmission => {
     latitude: typeof candidate.latitude === 'number' ? candidate.latitude : undefined,
     longitude: typeof candidate.longitude === 'number' ? candidate.longitude : undefined,
     notes: typeof candidate.notes === 'string' ? candidate.notes : undefined,
+    trainingFlag:
+      candidate.trainingFlag === 'driver' ||
+      candidate.trainingFlag === 'helper' ||
+      candidate.trainingFlag === 'both'
+        ? candidate.trainingFlag
+        : 'none',
     supersedesId:
       typeof candidate.supersedesId === 'string' ? candidate.supersedesId : undefined,
   };
