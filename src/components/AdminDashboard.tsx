@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { CaloMark } from './CaloMark';
 import { PlateScanner } from './PlateScanner';
 import type { Area, Driver, InspectionStatus, Van } from '@/lib/types';
 
@@ -95,18 +96,21 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
     areas.find((area) => area.id === id)?.name ?? 'Unassigned';
 
   return (
-    <div className="mx-auto min-h-screen max-w-5xl bg-steel">
-      <header className="bg-fleet-dark px-6 pb-4 pt-6">
+    <div className="mx-auto min-h-screen max-w-5xl bg-surface-page">
+      <header className="bg-brand-bold px-6 pb-4 pt-6">
+        <div className="mb-5">
+          <CaloMark invert />
+        </div>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/60">
-              Calo UAE · Manager view
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-content-invert/60">
+              UAE · Manager view
             </div>
-            <h1 className="text-2xl font-bold text-white">Van check admin</h1>
+            <h1 className="text-2xl font-black text-content-invert">Van check admin</h1>
           </div>
           <a
             href="/"
-            className="rounded-lg bg-white/15 px-3 py-2 text-xs font-bold text-white"
+            className="rounded-lg bg-content-invert/15 px-3 py-2 text-xs font-bold text-content-invert"
           >
             Back to checks
           </a>
@@ -119,7 +123,7 @@ export const AdminDashboard = ({ areas, vans, drivers, isAdmin }: Props) => {
               type="button"
               onClick={() => setTab(key)}
               className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold capitalize ${
-                tab === key ? 'bg-white text-fleet-dark' : 'text-white/70'
+                tab === key ? 'bg-content-invert text-brand-bold' : 'text-content-invert/70'
               }`}
             >
               {key}
@@ -200,33 +204,33 @@ const Reports = ({ areas }: { areas: Area[] }) => {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-white p-4">
-        <label className="text-xs font-bold uppercase tracking-wide text-sub">
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-surface-card p-4">
+        <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
           From
           <input
             type="date"
             value={from}
             onChange={(event) => setFrom(event.target.value)}
-            className="mt-1 block rounded-lg border border-line bg-steel px-3 py-2 text-sm font-normal text-ink"
+            className="mt-1 block rounded-lg border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
           />
         </label>
 
-        <label className="text-xs font-bold uppercase tracking-wide text-sub">
+        <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
           To
           <input
             type="date"
             value={to}
             onChange={(event) => setTo(event.target.value)}
-            className="mt-1 block rounded-lg border border-line bg-steel px-3 py-2 text-sm font-normal text-ink"
+            className="mt-1 block rounded-lg border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
           />
         </label>
 
-        <label className="text-xs font-bold uppercase tracking-wide text-sub">
+        <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
           Area
           <select
             value={areaId}
             onChange={(event) => setAreaId(event.target.value)}
-            className="mt-1 block rounded-lg border border-line bg-steel px-3 py-2 text-sm font-normal text-ink"
+            className="mt-1 block rounded-lg border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content"
           >
             <option value="">All areas</option>
             {areas.map((area) => (
@@ -241,14 +245,14 @@ const Reports = ({ areas }: { areas: Area[] }) => {
           type="button"
           onClick={() => void load()}
           disabled={loading}
-          className="rounded-lg bg-fleet px-5 py-2.5 text-sm font-bold text-white disabled:bg-line disabled:text-sub"
+          className="rounded-lg bg-brand px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
         >
           {loading ? 'Loading…' : 'Run report'}
         </button>
 
         <a
           href={`/api/reports?${params()}&format=csv`}
-          className="rounded-lg border border-line px-5 py-2.5 text-sm font-bold text-fleet"
+          className="rounded-lg border border-line px-5 py-2.5 text-sm font-bold text-brand"
         >
           Download CSV
         </a>
@@ -257,14 +261,14 @@ const Reports = ({ areas }: { areas: Area[] }) => {
       {rows !== null && (
         <>
           <div className="grid grid-cols-3 gap-3">
-            <Tile label="Checks" value={rows.length} tone="text-ink" bg="bg-white" />
+            <Tile label="Checks" value={rows.length} tone="text-content" bg="bg-surface-card" />
             <Tile label="Cleared" value={cleared} tone="text-pass" bg="bg-pass-soft" />
             <Tile label="Dispatch held" value={held} tone="text-hold" bg="bg-hold-soft" />
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-line bg-white">
+          <div className="overflow-x-auto rounded-xl border border-line bg-surface-card">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-[11px] uppercase tracking-wide text-sub">
+              <thead className="border-b border-line text-[11px] uppercase tracking-wide text-content-secondary">
                 <tr>
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Area</th>
@@ -282,7 +286,7 @@ const Reports = ({ areas }: { areas: Area[] }) => {
             </table>
 
             {rows.length === 0 && (
-              <p className="p-8 text-center text-sm text-sub">
+              <p className="p-8 text-center text-sm text-content-secondary">
                 No checks in that range.
               </p>
             )}
@@ -328,10 +332,10 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
   return (
     <>
       <tr
-        className={`border-b border-line last:border-b-0 ${hasDetail ? 'cursor-pointer hover:bg-steel' : ''}`}
+        className={`border-b border-line last:border-b-0 ${hasDetail ? 'cursor-pointer hover:bg-surface-page' : ''}`}
         onClick={hasDetail ? () => void toggle() : undefined}
       >
-        <td className="px-4 py-3 text-xs text-sub">
+        <td className="px-4 py-3 text-xs text-content-secondary">
           {new Date(row.performedAt).toLocaleString('en-GB', {
             day: '2-digit',
             month: 'short',
@@ -340,10 +344,10 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
           })}
         </td>
         <td className="px-4 py-3">{row.areaName}</td>
-        <td className="px-4 py-3 font-bold text-ink">
+        <td className="px-4 py-3 font-bold text-content">
           {row.plate}
           {hasDetail && (
-            <span className="ml-2 text-xs font-normal text-fleet">
+            <span className="ml-2 text-xs font-normal text-brand">
               {open ? '\u25be' : '\u25b8'} {row.failedCount > 0 ? `${row.failedCount} issue${row.failedCount > 1 ? 's' : ''}` : 'note'}
             </span>
           )}
@@ -351,10 +355,10 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
         <td className="px-4 py-3">
           {row.driverName}
           {row.helperName !== null && (
-            <span className="text-xs text-sub"> + {row.helperName}</span>
+            <span className="text-xs text-content-secondary"> + {row.helperName}</span>
           )}
         </td>
-        <td className={`px-4 py-3 tabular-nums ${row.tempReadingC === null ? 'text-sub' : ''}`}>
+        <td className={`px-4 py-3 tabular-nums ${row.tempReadingC === null ? 'text-content-secondary' : ''}`}>
           {row.tempReadingC === null ? '\u2014' : `${row.tempReadingC.toFixed(1)}\u00b0C`}
         </td>
         <td className="px-4 py-3">
@@ -367,19 +371,19 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
       </tr>
 
       {open && (
-        <tr className="border-b border-line bg-steel">
+        <tr className="border-b border-line bg-surface-page">
           <td colSpan={6} className="px-4 py-4">
-            {loading && <p className="text-sm text-sub">Loading evidence\u2026</p>}
+            {loading && <p className="text-sm text-content-secondary">Loading evidence\u2026</p>}
 
             {detail !== null && (
               <div className="space-y-4">
                 {detail.failures.map((failure) => (
                   <div
                     key={failure.label}
-                    className="rounded-xl border border-line bg-white p-4"
+                    className="rounded-xl border border-line bg-surface-card p-4"
                   >
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-bold text-ink">{failure.label}</span>
+                      <span className="text-sm font-bold text-content">{failure.label}</span>
                       {failure.critical && (
                         <span className="rounded bg-hold-soft px-1.5 py-0.5 text-[9px] font-bold text-hold">
                           BLOCKED DISPATCH
@@ -393,7 +397,7 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
                     </div>
 
                     {failure.note !== null && failure.note !== '' && (
-                      <p className="mt-1 text-sm text-sub">{failure.note}</p>
+                      <p className="mt-1 text-sm text-content-secondary">{failure.note}</p>
                     )}
 
                     {failure.photoUrls.length > 0 && (
@@ -418,15 +422,15 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
                 ))}
 
                 {detail.notes !== null && detail.notes !== '' && (
-                  <div className="rounded-xl border border-line bg-white p-4">
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-sub">
+                  <div className="rounded-xl border border-line bg-surface-card p-4">
+                    <div className="text-[11px] font-bold uppercase tracking-wide text-content-secondary">
                       Inspector\u2019s notes
                     </div>
-                    <p className="mt-1 text-sm text-ink">{detail.notes}</p>
+                    <p className="mt-1 text-sm text-content">{detail.notes}</p>
                   </div>
                 )}
 
-                <p className="text-xs text-sub">
+                <p className="text-xs text-content-secondary">
                   {detail.passedCount} check{detail.passedCount === 1 ? '' : 's'} passed \u00b7
                   recorded by {detail.inspectorName}. Photo links expire after an hour.
                 </p>
@@ -452,7 +456,7 @@ const Tile = ({
 }) => (
   <div className={`rounded-xl border border-line p-4 ${bg}`}>
     <div className={`text-3xl font-bold ${tone}`}>{value}</div>
-    <div className="text-[11px] font-bold uppercase tracking-wide text-sub">{label}</div>
+    <div className="text-[11px] font-bold uppercase tracking-wide text-content-secondary">{label}</div>
   </div>
 );
 
@@ -467,18 +471,18 @@ const Field = ({
   label: string;
   children: React.ReactNode;
 }) => (
-  <label className="text-xs font-bold uppercase tracking-wide text-sub">
+  <label className="text-xs font-bold uppercase tracking-wide text-content-secondary">
     {label}
     {children}
   </label>
 );
 
 const inputClass =
-  'mt-1 block w-full rounded-lg border border-line bg-steel px-3 py-2 text-sm font-normal text-ink outline-none focus:border-fleet';
+  'mt-1 block w-full rounded-lg border border-line bg-surface-page px-3 py-2 text-sm font-normal text-content outline-none focus:border-brand';
 
 const Panel = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <div className="rounded-xl border border-line bg-white p-4">
-    <h2 className="mb-3 text-sm font-bold text-ink">{title}</h2>
+  <div className="rounded-xl border border-line bg-surface-card p-4">
+    <h2 className="mb-3 text-sm font-bold text-content">{title}</h2>
     {children}
   </div>
 );
@@ -508,7 +512,7 @@ const ActiveToggle = ({
   if (confirming) {
     return (
       <div className="flex shrink-0 items-center gap-2">
-        <span className="text-xs text-sub">Delete permanently?</span>
+        <span className="text-xs text-content-secondary">Delete permanently?</span>
         <button
           type="button"
           disabled={busy}
@@ -516,14 +520,14 @@ const ActiveToggle = ({
             setConfirming(false);
             void onCall(`/api/admin/${entity}?id=${id}`, 'DELETE', undefined);
           }}
-          className="rounded-lg bg-fail px-3 py-1.5 text-xs font-bold text-white"
+          className="rounded-lg bg-fail px-3 py-1.5 text-xs font-bold text-content-invert"
         >
           Delete
         </button>
         <button
           type="button"
           onClick={() => setConfirming(false)}
-          className="rounded-lg bg-steel px-3 py-1.5 text-xs font-bold text-sub"
+          className="rounded-lg bg-surface-page px-3 py-1.5 text-xs font-bold text-content-secondary"
         >
           Cancel
         </button>
@@ -610,7 +614,7 @@ const AreasTab = ({
               type="button"
               onClick={() => void add()}
               disabled={busy}
-              className="rounded-lg bg-fleet px-5 py-2.5 text-sm font-bold text-white disabled:bg-line disabled:text-sub"
+              className="rounded-lg bg-brand px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
             >
               Add
             </button>
@@ -618,17 +622,17 @@ const AreasTab = ({
         </Panel>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-line bg-white">
+      <div className="overflow-hidden rounded-xl border border-line bg-surface-card">
         {areas.map((area) => (
           <div
             key={area.id}
             className="flex items-center justify-between border-b border-line px-4 py-3 last:border-b-0"
           >
             <div>
-              <span className="font-bold text-ink">{area.name}</span>
-              <span className="ml-2 text-xs text-sub">{area.code}</span>
+              <span className="font-bold text-content">{area.name}</span>
+              <span className="ml-2 text-xs text-content-secondary">{area.code}</span>
               {!area.active && (
-                <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-sub">
+                <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-content-secondary">
                   INACTIVE
                 </span>
               )}
@@ -676,7 +680,7 @@ const VansTab = ({
   return (
     <div className="space-y-4">
       <Panel title="Add a van">
-        <p className="mb-3 text-xs text-sub">
+        <p className="mb-3 text-xs text-content-secondary">
           All vans run 0–5 °C. Scanning fills the plate in for you — check it before saving.
         </p>
         <div className="flex flex-wrap items-end gap-3">
@@ -708,24 +712,24 @@ const VansTab = ({
             type="button"
             onClick={() => void add()}
             disabled={busy}
-            className="rounded-lg bg-fleet px-5 py-2.5 text-sm font-bold text-white disabled:bg-line disabled:text-sub"
+            className="rounded-lg bg-brand px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
           >
             Add
           </button>
         </div>
       </Panel>
 
-      <div className="overflow-hidden rounded-xl border border-line bg-white">
+      <div className="overflow-hidden rounded-xl border border-line bg-surface-card">
         {vans.map((van) => (
           <div
             key={van.id}
             className="flex items-center justify-between border-b border-line px-4 py-3 last:border-b-0"
           >
             <div>
-              <span className="font-bold text-ink">{van.plate}</span>
-              <span className="ml-2 text-xs text-sub">{areaName(van.areaId)} · 0–5 °C</span>
+              <span className="font-bold text-content">{van.plate}</span>
+              <span className="ml-2 text-xs text-content-secondary">{areaName(van.areaId)} · 0–5 °C</span>
               {!van.active && (
-                <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-sub">
+                <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-content-secondary">
                   INACTIVE
                 </span>
               )}
@@ -814,7 +818,7 @@ const DriversTab = ({
               type="button"
               onClick={() => setStaffRole(role)}
               className={`rounded-lg px-4 py-2 text-sm font-bold capitalize ${
-                staffRole === role ? 'bg-fleet text-white' : 'bg-steel text-sub'
+                staffRole === role ? 'bg-brand text-content-invert' : 'bg-surface-page text-content-secondary'
               }`}
             >
               {role}
@@ -886,14 +890,14 @@ const DriversTab = ({
             type="button"
             onClick={() => void add()}
             disabled={busy || (staffRole === 'helper' && partnerId === '')}
-            className="rounded-lg bg-fleet px-5 py-2.5 text-sm font-bold text-white disabled:bg-line disabled:text-sub"
+            className="rounded-lg bg-brand px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-line disabled:text-content-secondary"
           >
             Add
           </button>
         </div>
 
         {staffRole === 'helper' && (
-          <p className="mt-3 text-xs text-sub">
+          <p className="mt-3 text-xs text-content-secondary">
             {availableDrivers.length === 0
               ? 'Every active driver already has a helper. Add a driver first.'
               : 'The helper takes the same van and area as their driver.'}
@@ -901,14 +905,14 @@ const DriversTab = ({
         )}
 
         {staffRole === 'driver' && vansInArea.length === 0 && (
-          <p className="mt-3 text-xs text-sub">
+          <p className="mt-3 text-xs text-content-secondary">
             No active vans in {areaName(areaId)} yet. Add the van first, or leave the driver
             unassigned &mdash; an unassigned driver will not appear in the supervisor&rsquo;s list.
           </p>
         )}
       </Panel>
 
-      <div className="overflow-hidden rounded-xl border border-line bg-white">
+      <div className="overflow-hidden rounded-xl border border-line bg-surface-card">
         {drivers.map((person) => {
           const van = vans.find((candidate) => candidate.id === person.defaultVanId);
           const pairedWith = drivers.find((candidate) => candidate.id === person.partnerId);
@@ -919,17 +923,17 @@ const DriversTab = ({
               className="flex items-center justify-between border-b border-line px-4 py-3 last:border-b-0"
             >
               <div className="min-w-0">
-                <span className="font-bold text-ink">{person.fullName}</span>
+                <span className="font-bold text-content">{person.fullName}</span>
                 <span
                   className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
                     person.staffRole === 'helper'
-                      ? 'bg-steel text-sub'
-                      : 'bg-fleet/10 text-fleet'
+                      ? 'bg-surface-page text-content-secondary'
+                      : 'bg-brand-light text-brand'
                   }`}
                 >
                   {person.staffRole}
                 </span>
-                <span className="ml-2 text-xs text-sub">
+                <span className="ml-2 text-xs text-content-secondary">
                   {areaName(person.areaId)} ·{' '}
                   {van === undefined ? (
                     <span className="text-hold">no van assigned</span>
@@ -939,7 +943,7 @@ const DriversTab = ({
                   {pairedWith !== undefined && ` · with ${pairedWith.fullName}`}
                 </span>
                 {!person.active && (
-                  <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-sub">
+                  <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-content-secondary">
                     INACTIVE
                   </span>
                 )}
