@@ -5,9 +5,17 @@ import { useRouter } from 'next/navigation';
 import { BulkImport } from './BulkImport';
 import { CaloMark } from './CaloMark';
 import { PlateScanner, type PlateReading } from './PlateScanner';
-import type { Area, CheckCause, CheckItem, Driver, InspectionStatus, Van } from '@/lib/types';
+import type {
+  Area,
+  CheckAction,
+  CheckCause,
+  CheckItem,
+  Driver,
+  InspectionStatus,
+  Van,
+} from '@/lib/types';
 
-type Tab = 'reports' | 'training' | 'areas' | 'vans' | 'drivers' | 'causes';
+type Tab = 'reports' | 'training' | 'areas' | 'vans' | 'drivers' | 'options';
 
 type ReportRow = {
   id: string;
@@ -29,6 +37,8 @@ type FailureDetail = {
   critical: boolean;
   numericValue: number | null;
   note: string | null;
+  causeLabel: string | null;
+  actionLabel: string | null;
   photoUrls: string[];
 };
 
@@ -57,6 +67,7 @@ type Props = {
   vans: Van[];
   drivers: Driver[];
   causes: CheckCause[];
+  actions: CheckAction[];
   checkItems: CheckItem[];
   isAdmin: boolean;
 };
@@ -66,6 +77,7 @@ export const AdminDashboard = ({
   vans,
   drivers,
   causes,
+  actions,
   checkItems,
   isAdmin,
 }: Props) => {
@@ -127,7 +139,7 @@ export const AdminDashboard = ({
         </div>
 
         <nav className="mt-4 flex gap-1 overflow-x-auto">
-          {(['reports', 'training', 'areas', 'vans', 'drivers', 'causes'] as Tab[]).map((key) => (
+          {(['reports', 'training', 'areas', 'vans', 'drivers', 'options'] as Tab[]).map((key) => (
             <button
               key={key}
               type="button"
@@ -161,9 +173,10 @@ export const AdminDashboard = ({
 
         {tab === 'training' && <TrainingTab areas={areas} />}
 
-        {tab === 'causes' && (
-          <CausesTab
+        {tab === 'options' && (
+          <OptionsTab
             causes={causes}
+            actions={actions}
             checkItems={checkItems}
             busy={busy}
             onCall={call}
@@ -612,7 +625,15 @@ const InspectionRow = ({ row }: { row: ReportRow }) => {
                 {detail.failures.map((failure) => (
                   <div key={failure.label} className="rounded-md border border-line bg-surface-card p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-bold text-content">{failure.label}</span>
+                      <span className="text-sm font-bold text-content">
+                        {failure.label}
+                        {failure.causeLabel !== null && `: ${failure.causeLabel}`}
+                      </span>
+                      {failure.actionLabel !== null && (
+                        <span className="rounded-full bg-pass-soft px-2 py-0.5 text-[10px] font-bold text-pass">
+                          {failure.actionLabel}
+                        </span>
+                      )}
                       {failure.critical && (
                         <span className="rounded bg-hold-soft px-1.5 py-0.5 text-[9px] font-bold text-hold">
                           BLOCKED DISPATCH
@@ -1005,13 +1026,112 @@ const TrainingTab = ({ areas }: { areas: Area[] }) => {
 
 const CATEGORY_OPTIONS = ['supply', 'standards', 'wear', 'equipment', 'behaviour', 'other'];
 
-const CausesTab = ({
+/**
+ * "What was done" options. Optional for the inspector, but this is the
+ * field that tells a held van from a fixed one, so the list is worth
+ * keeping short and unambiguous.
+ */
+const ActionsPanel = ({
+  actions,
+  busy,
+  onCall,
+}: {
+  actions: CheckAction[];
+  busy: boolean;
+  onCall: CallFn;
+}) => {
+  const [label, setLabel] = useState('');
+
+  const add = async (): Promise<void> => {
+    const ok = await onCall('/api/admin/actions', 'POST', {
+      label,
+      sortOrder: actions.length + 1,
+    });
+    if (ok) {
+      setLabel('');
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-line bg-surface-card p-4">
+      <h2 className="text-sm font-bold text-content">What was done</h2>
+      <p className="mt-0.5 text-xs text-content-secondary">
+        One list for every check. Optional for the inspector, but it is what separates a van
+        that was fixed from one that was only reported.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <Field label="Action">
+          <input
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+            placeholder="Escalated to fleet manager"
+            className={inputClass}
+          />
+        </Field>
+        <button
+          type="button"
+          onClick={() => void add()}
+          disabled={busy}
+          className="rounded-sm bg-brand-action px-5 py-2.5 text-sm font-bold text-content-invert disabled:bg-disabled disabled:text-content-secondary"
+        >
+          Add
+        </button>
+      </div>
+
+      <div className="mt-3 overflow-hidden rounded-sm border border-line">
+        {actions.map((action) => (
+          <div
+            key={action.id}
+            className="flex items-center justify-between gap-3 border-b border-line px-3 py-2.5 last:border-b-0"
+          >
+            <span className="text-sm font-bold text-content">
+              {action.label}
+              {!action.active && (
+                <span className="ml-2 rounded bg-line px-2 py-0.5 text-[10px] font-bold text-content-secondary">
+                  INACTIVE
+                </span>
+              )}
+            </span>
+            <ActiveToggle
+              entity="actions"
+              id={action.id}
+              label={action.label}
+              active={action.active}
+              busy={busy}
+              onCall={onCall}
+            />
+          </div>
+        ))}
+        {actions.length === 0 && (
+          <p className="p-4 text-center text-sm text-content-secondary">
+            No actions configured. The question will not appear to inspectors.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * The two option lists an inspector taps when a check fails. Causes are
+ * per check; actions are global, because "reported to workshop" means
+ * the same thing whichever check failed.
+ */
+/**
+ * Actions are global, so they sit above the per check cause lists.
+ * Deleting one is refused once it has been recorded on a failure, the
+ * same rule as everywhere else: it would take history with it.
+ */
+const OptionsTab = ({
   causes,
+  actions,
   checkItems,
   busy,
   onCall,
 }: {
   causes: CheckCause[];
+  actions: CheckAction[];
   checkItems: CheckItem[];
   busy: boolean;
   onCall: CallFn;
@@ -1035,6 +1155,8 @@ const CausesTab = ({
 
   return (
     <div className="space-y-4">
+      <ActionsPanel actions={actions} busy={busy} onCall={onCall} />
+
       <Panel title="Add a cause">
         <p className="mb-3 text-xs text-content-secondary">
           These are the options an inspector taps when a check fails. The category is never shown
