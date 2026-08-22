@@ -37,6 +37,7 @@ type Evidence = {
   driverName: string;
   checkLabel: string;
   causeLabel: string | null;
+  actionLabel: string | null;
   note: string | null;
   url: string;
 };
@@ -65,6 +66,7 @@ type FailureRow = {
   note: string | null;
   check_items: { label: string } | { label: string }[] | null;
   check_causes: { label: string } | { label: string }[] | null;
+  check_actions: { label: string } | { label: string }[] | null;
   inspection_photos: { storage_key: string }[] | null;
 };
 
@@ -105,7 +107,7 @@ const gather = async (
   const { data } = await db
     .from('inspection_results')
     .select(
-      'inspection_id, note, check_items(label), check_causes(label), inspection_photos(storage_key)',
+      'inspection_id, note, check_items(label), check_causes(label), check_actions(label), inspection_photos(storage_key)',
     )
     .in('inspection_id', ids)
     .eq('passed', false);
@@ -150,6 +152,7 @@ const gather = async (
           driverName: record.driverName,
           checkLabel: label,
           causeLabel: cause,
+          actionLabel: causeOf(raw.check_actions),
           note: raw.note,
           url: signed.signedUrl,
         });
@@ -423,7 +426,9 @@ export const buildAreaReport = async (
           type: 'mrkdwn' as const,
           text: `*${item.plate}* · ${item.checkLabel}${
             item.causeLabel === null ? '' : `: ${item.causeLabel}`
-          } · ${item.driverName}${item.note === null || item.note === '' ? '' : ` · ${item.note}`}`,
+          } · ${item.driverName}${
+            item.actionLabel === null ? '' : ` · ${item.actionLabel}`
+          }${item.note === null || item.note === '' ? '' : ` · ${item.note}`}`,
         },
       ],
     },
