@@ -51,9 +51,8 @@ export const listCheckItems = async (): Promise<CheckItem[]> => {
 export class ValidationError extends Error {}
 
 /**
- * A failed check with no photo or no note is not a record, it is an
- * assertion. Rejected here as well as in the UI, because the UI is not a
- * security boundary.
+ * Rejected here as well as in the UI, because the UI is not a security
+ * boundary.
  */
 const assertEvidenceComplete = (
   submission: InspectionSubmission,
@@ -63,13 +62,13 @@ const assertEvidenceComplete = (
     if (answer.passed) {
       continue;
     }
-    if (answer.note === undefined || answer.note.trim() === '') {
-      throw new ValidationError(`${answer.checkItemCode} failed without a note`);
+    // Photo, note and action are optional by choice: requiring them cost
+    // more in adoption than they returned. The cause is what the reports
+    // depend on, so it stays required, but only where the check actually
+    // has options configured.
+    if (causeRequiredFor.has(answer.checkItemCode) && (answer.causeId ?? '') === '') {
+      throw new ValidationError(`${answer.checkItemCode} failed without a cause`);
     }
-    if (answer.photoKey === undefined || answer.photoKey === '') {
-      throw new ValidationError(`${answer.checkItemCode} failed without a photo`);
-    }
-
   }
 };
 
@@ -148,6 +147,7 @@ export const submitInspection = async (
       numeric_value: answer.numericValue ?? null,
       note: answer.note ?? null,
       cause_id: answer.causeId ?? null,
+      action_id: answer.actionId ?? null,
     };
   });
 
@@ -263,6 +263,7 @@ export type InspectionResultDetail = {
   numericValue: number | null;
   note: string | null;
   causeLabel: string | null;
+  actionLabel: string | null;
   /** Signed, short-lived. The bucket is private. */
   photoUrls: string[];
   /** Raw storage keys, for server-side use such as embedding into a PDF. */
@@ -293,6 +294,7 @@ type ResultDetailRow = {
   note: string | null;
   check_items: { label: string; critical: boolean } | { label: string; critical: boolean }[] | null;
   check_causes: { label: string } | { label: string }[] | null;
+  check_actions: { label: string } | { label: string }[] | null;
   inspection_photos: { storage_key: string }[] | null;
 };
 
@@ -326,7 +328,7 @@ export const getInspectionDetail = async (id: string): Promise<InspectionDetail 
   const { data: results, error: resultsError } = await db
     .from('inspection_results')
     .select(
-      'passed, numeric_value, note, check_items(label, critical), check_causes(label), inspection_photos(storage_key)',
+      'passed, numeric_value, note, check_items(label, critical), check_causes(label), check_actions(label), inspection_photos(storage_key)',
     )
     .eq('inspection_id', id);
 
@@ -364,6 +366,7 @@ export const getInspectionDetail = async (id: string): Promise<InspectionDetail 
       numericValue: row.numeric_value === null ? null : Number(row.numeric_value),
       note: row.note,
       causeLabel: firstOf(row.check_causes)?.label ?? null,
+      actionLabel: firstOf(row.check_actions)?.label ?? null,
       photoUrls,
       photoKeys: keys,
     });
