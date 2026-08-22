@@ -1372,7 +1372,12 @@ const VansTab = ({
 
   return (
     <div className="space-y-4">
-      <BulkImport entity="vans" onImported={onRefresh} />
+      <BulkImport
+        entity="vans"
+        areaNames={areas.filter((area) => area.active).map((area) => area.name)}
+        samplePlate={vans[0]?.plate ?? 'DXB-12345'}
+        onImported={onRefresh}
+      />
 
       <Panel title="Add a van">
         <p className="mb-3 text-xs text-content-secondary">
@@ -1518,7 +1523,12 @@ const DriversTab = ({
 
   return (
     <div className="space-y-4">
-      <BulkImport entity="drivers" onImported={onRefresh} />
+      <BulkImport
+        entity="drivers"
+        areaNames={areas.filter((area) => area.active).map((area) => area.name)}
+        samplePlate={vans[0]?.plate ?? 'DXB-12345'}
+        onImported={onRefresh}
+      />
 
       <Panel title="Add a driver or helper">
         <div className="mb-3 flex gap-2">
