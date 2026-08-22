@@ -3,63 +3,43 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
- * Paste from a spreadsheet or pick a CSV, preview what will happen, then
- * commit. Nothing is written until the preview has been seen.
+ * One row is a van, its driver, and optionally its helper: the same fact
+ * as it exists in the yard. Paste it, or point at a Google Sheet.
+ *
+ * Preview runs on its own. Requiring a Preview click before the Import
+ * button appeared meant that after loading a sheet nothing actionable
+ * was on screen, which read as the button being missing.
  */
 
 type Issue = { line: number; input: string; reason: string };
 
-type VanDraft = { line: number; plate: string; areaName: string };
-type StaffDraft = {
+type Draft = {
   line: number;
-  fullName: string;
-  staffRole: 'driver' | 'helper';
-  areaName: string;
   plate: string;
-  partnerName: string;
+  areaName: string;
+  existingVanId: string | null;
+  driverName: string;
+  helperName: string;
 };
 
-type PreviewResult = {
-  valid: (VanDraft | StaffDraft)[];
-  issues: Issue[];
-  imported?: number;
-};
+type PreviewResult = { valid: Draft[]; issues: Issue[]; imported?: number };
 
-type Column = { key: string; label: string; note: string };
-
-const SCHEMA: Record<'vans' | 'drivers', { heading: string; columns: Column[] }> = {
-  vans: {
-    heading: 'Bulk add vans',
-    columns: [
-      { key: 'plate', label: 'plate', note: 'DXB-12345' },
-      { key: 'area', label: 'area', note: 'the emirate' },
-    ],
-  },
-  drivers: {
-    heading: 'Bulk add drivers and helpers',
-    columns: [
-      { key: 'name', label: 'name', note: 'full name' },
-      { key: 'area', label: 'area', note: 'drivers only' },
-      { key: 'van', label: 'van', note: 'drivers only, optional' },
-      { key: 'rides with', label: 'rides with', note: 'helpers only, the driver name' },
-    ],
-  },
-};
-
-const isStaff = (draft: VanDraft | StaffDraft): draft is StaffDraft => 'fullName' in draft;
+const COLUMNS: { key: string; note: string }[] = [
+  { key: 'plate', note: 'DXB-12345' },
+  { key: 'area', note: 'the emirate' },
+  { key: 'driver', note: 'full name' },
+  { key: 'helper', note: 'optional, leave blank if none' },
+];
 
 export const BulkImport = ({
-  entity,
   areaNames,
   samplePlate,
   onImported,
 }: {
-  entity: 'vans' | 'drivers';
   areaNames: string[];
   samplePlate: string;
   onImported: () => void;
 }) => {
-  const schema = SCHEMA[entity];
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [open, setOpen] = useState(false);
@@ -71,64 +51,59 @@ export const BulkImport = ({
   const [error, setError] = useState<string | null>(null);
 
   const firstArea = areaNames[0] ?? 'Dubai';
-
-  // Built from the real areas and a real plate, so the example cannot
-  // suggest a value the import would then reject.
-  const templateCsv =
-    entity === 'vans'
-      ? `plate,area\n${samplePlate},${firstArea}\nDXB-99001,${areaNames[1] ?? firstArea}\n`
-      : `name,area,van,rides with\nRashid Al Mansoori,${firstArea},${samplePlate},\nJoseph Fernandes,,,Rashid Al Mansoori\n`;
+  const template =
+    `plate,area,driver,helper\n` +
+    `${samplePlate},${firstArea},Rashid Al Mansoori,Joseph Fernandes\n` +
+    `DXB-99001,${areaNames[1] ?? firstArea},Anil Kumar,\n`;
 
   const downloadTemplate = (): void => {
-    const blob = new Blob([templateCsv], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `calo-${entity}-template.csv`;
+    link.download = 'calo-fleet-template.csv';
     link.click();
     URL.revokeObjectURL(url);
   };
 
   const call = useCallback(
     async (commit: boolean, source: string, url: string): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/admin/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity, text: source, sheetUrl: url, commit }),
-      });
+      setBusy(true);
+      setError(null);
+      try {
+        const response = await fetch('/api/admin/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: source, sheetUrl: url, commit }),
+        });
 
-      const body: unknown = await response.json();
+        const body: unknown = await response.json();
 
-      if (!response.ok) {
-        const message =
-          typeof body === 'object' && body !== null && 'error' in body
-            ? String((body as { error: unknown }).error)
-            : 'Import failed';
-        setError(message);
-        return;
+        if (!response.ok) {
+          setError(
+            typeof body === 'object' && body !== null && 'error' in body
+              ? String((body as { error: unknown }).error)
+              : 'Import failed',
+          );
+          return;
+        }
+
+        setResult(body as PreviewResult);
+
+        if (commit) {
+          setText('');
+          setSheetUrl('');
+          onImported();
+        }
+      } catch {
+        setError('Could not reach the server');
+      } finally {
+        setBusy(false);
       }
-
-      setResult(body as PreviewResult);
-
-      if (commit) {
-        setText('');
-        onImported();
-      }
-    } catch {
-      setError('Could not reach the server');
-    } finally {
-      setBusy(false);
-    }
-  },
-    [entity, onImported],
+    },
+    [onImported],
   );
 
-  // Previewing automatically. Requiring a Preview click before the
-  // Import button appeared meant that after choosing a file nothing
-  // actionable was on screen, which read as the button being missing.
   useEffect(() => {
     if (mode !== 'paste' || text.trim() === '') {
       return;
@@ -141,9 +116,7 @@ export const BulkImport = ({
 
   const readFile = (file: File): void => {
     const reader = new FileReader();
-    reader.onload = () => {
-      setText(String(reader.result));
-    };
+    reader.onload = () => setText(String(reader.result));
     reader.readAsText(file);
   };
 
@@ -154,7 +127,7 @@ export const BulkImport = ({
         onClick={() => setOpen(true)}
         className="rounded-sm border border-line bg-surface-card px-4 py-2.5 text-sm font-bold text-brand"
       >
-        Bulk import
+        Bulk import fleet
       </button>
     );
   }
@@ -163,9 +136,9 @@ export const BulkImport = ({
     <div className="rounded-md border border-line bg-surface-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-bold text-content">{schema.heading}</h2>
+          <h2 className="text-sm font-bold text-content">Bulk import fleet</h2>
           <p className="mt-0.5 text-xs text-content-secondary">
-            Paste from a spreadsheet or choose a CSV. Keep the header row and the column order
+            One row per van, with its driver and helper. Keep the header row and the column order
             does not matter.
           </p>
         </div>
@@ -186,17 +159,18 @@ export const BulkImport = ({
         <div className="bg-surface-page px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-content-secondary">
           Columns
         </div>
-        {schema.columns.map((column) => (
+        {COLUMNS.map((column) => (
           <div
             key={column.key}
             className="flex items-baseline gap-3 border-t border-line px-3 py-1.5 text-xs"
           >
-            <span className="w-24 shrink-0 font-mono font-bold text-content">{column.label}</span>
+            <span className="w-16 shrink-0 font-mono font-bold text-content">{column.key}</span>
             <span className="text-content-secondary">{column.note}</span>
           </div>
         ))}
         <div className="border-t border-line bg-surface-page px-3 py-2 text-[11px] text-content-secondary">
-          Areas must match exactly: {areaNames.length === 0 ? 'none set up yet' : areaNames.join(', ')}
+          Areas must match exactly:{' '}
+          {areaNames.length === 0 ? 'none set up yet' : areaNames.join(', ')}
         </div>
       </div>
 
@@ -247,30 +221,31 @@ export const BulkImport = ({
           </button>
         </div>
       ) : (
-      <textarea
-        value={text}
-        onChange={(event) => {
-          setText(event.target.value);
-          setResult(null);
-        }}
-        rows={6}
-        placeholder={templateCsv}
-        className="mt-3 w-full resize-y rounded-sm border border-line bg-surface-page p-3 font-mono text-xs text-content outline-none"
-      />
+        <>
+          <textarea
+            value={text}
+            onChange={(event) => {
+              setText(event.target.value);
+              setResult(null);
+            }}
+            rows={6}
+            placeholder={template}
+            className="mt-3 w-full resize-y rounded-sm border border-line bg-surface-page p-3 font-mono text-xs text-content outline-none"
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.tsv,.txt,text/csv"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file !== undefined) {
+                readFile(file);
+              }
+            }}
+          />
+        </>
       )}
-
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".csv,.tsv,.txt,text/csv"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file !== undefined) {
-            readFile(file);
-          }
-        }}
-      />
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
@@ -280,6 +255,7 @@ export const BulkImport = ({
         >
           Download template
         </button>
+
         {mode === 'paste' && (
           <button
             type="button"
@@ -289,6 +265,7 @@ export const BulkImport = ({
             Choose a file
           </button>
         )}
+
         {result !== null && result.valid.length > 0 && result.imported === undefined && (
           <button
             type="button"
@@ -296,7 +273,7 @@ export const BulkImport = ({
             disabled={busy}
             className="rounded-sm bg-pass px-6 py-2 text-xs font-bold text-content-invert"
           >
-            Import {result.valid.length} row{result.valid.length === 1 ? '' : 's'}
+            Import {result.valid.length} van{result.valid.length === 1 ? '' : 's'}
           </button>
         )}
 
@@ -315,7 +292,7 @@ export const BulkImport = ({
         <div className="mt-4 space-y-3">
           {result.imported !== undefined && (
             <div className="rounded-sm bg-pass-soft p-3 text-sm font-bold text-pass">
-              Imported {result.imported} row{result.imported === 1 ? '' : 's'}.
+              Imported {result.imported} van{result.imported === 1 ? '' : 's'} with their crews.
             </div>
           )}
 
@@ -324,29 +301,21 @@ export const BulkImport = ({
               <div className="bg-pass-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-pass">
                 {result.valid.length} ready to import
               </div>
-              <div className="max-h-48 overflow-y-auto">
+              <div className="max-h-52 overflow-y-auto">
                 {result.valid.map((draft) => (
                   <div
                     key={draft.line}
                     className="flex items-center gap-3 border-b border-line px-3 py-2 text-xs last:border-b-0"
                   >
-                    <span className="w-8 text-content-secondary">{draft.line}</span>
-                    {isStaff(draft) ? (
-                      <span className="text-content">
-                        <span className="font-bold">{draft.fullName}</span>{' '}
-                        <span className="text-content-secondary">
-                          {draft.staffRole}
-                          {draft.areaName === '' ? '' : ` · ${draft.areaName}`}
-                          {draft.plate === '' ? '' : ` · ${draft.plate}`}
-                          {draft.partnerName === '' ? '' : ` · with ${draft.partnerName}`}
-                        </span>
+                    <span className="w-8 shrink-0 text-content-secondary">{draft.line}</span>
+                    <span className="min-w-0 text-content">
+                      <span className="font-bold">{draft.plate}</span>{' '}
+                      <span className="text-content-secondary">
+                        {draft.areaName} · {draft.driverName}
+                        {draft.helperName === '' ? '' : ` + ${draft.helperName}`}
+                        {draft.existingVanId !== null && ' · existing van'}
                       </span>
-                    ) : (
-                      <span className="text-content">
-                        <span className="font-bold">{draft.plate}</span>{' '}
-                        <span className="text-content-secondary">{draft.areaName}</span>
-                      </span>
-                    )}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -358,7 +327,7 @@ export const BulkImport = ({
               <div className="bg-fail-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-fail">
                 {result.issues.length} row{result.issues.length === 1 ? '' : 's'} skipped
               </div>
-              <div className="max-h-48 overflow-y-auto">
+              <div className="max-h-52 overflow-y-auto">
                 {result.issues.map((issue) => (
                   <div
                     key={`${issue.line}-${issue.reason}`}
@@ -373,7 +342,7 @@ export const BulkImport = ({
                 ))}
               </div>
               <p className="border-t border-line px-3 py-2 text-[11px] text-content-secondary">
-                Skipped rows are not imported. Fix them in your sheet and paste again.
+                Skipped rows are not imported. Fix them and load again.
               </p>
             </div>
           )}
