@@ -70,6 +70,14 @@ export type CheckCause = {
 
 export type TrainingFlag = 'none' | 'driver' | 'helper' | 'both';
 
+/** What was done about a failure. Global: the same list for every check. */
+export type CheckAction = {
+  id: string;
+  label: string;
+  sortOrder: number;
+  active: boolean;
+};
+
 export type CheckItem = {
   id: string;
   code: string;
@@ -92,6 +100,8 @@ export type CheckAnswer = {
   photoKey?: string;
   /** Which cause was picked. Required whenever passed is false. */
   causeId?: string;
+  /** What was done about it. Optional. */
+  actionId?: string;
 };
 
 export type InspectionSubmission = {
