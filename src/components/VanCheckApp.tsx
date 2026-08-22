@@ -745,6 +745,32 @@ const Checklist = ({
             placeholder="Observations, follow-ups, things to watch"
             className="mt-3 w-full resize-none rounded-lg border border-line bg-surface-page p-3 text-sm text-content outline-none"
           />
+
+          <div className="mt-4 border-t border-line pt-4">
+            <div className="text-sm font-bold text-content">Does anyone need training?</div>
+            <div className="mt-0.5 text-xs text-content-secondary">
+              Your call. It goes on the training queue, not on their record as a penalty.
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {TRAINING_CHOICES.filter(
+                (choice) => hasHelper || (choice.value !== 'helper' && choice.value !== 'both'),
+              ).map((choice) => (
+                <button
+                  key={choice.value}
+                  type="button"
+                  onClick={() => onTraining(choice.value)}
+                  className={`rounded-lg px-3 py-2.5 text-sm font-bold ${
+                    training === choice.value
+                      ? 'bg-brand-action text-content-invert'
+                      : 'border border-line bg-surface-page text-content-secondary'
+                  }`}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <button
@@ -851,6 +877,33 @@ const Evidence = ({
         rows={2}
         className="w-full resize-none rounded-lg border border-line bg-surface-page p-3 text-sm text-content outline-none"
       />
+
+      {causes.length > 0 && (
+        <div className="pt-1">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-content-secondary">
+            What caused this?
+          </div>
+          <div className="mt-2 grid gap-1.5">
+            {causes.map((cause) => {
+              const chosen = answer.causeId === cause.id;
+              return (
+                <button
+                  key={cause.id}
+                  type="button"
+                  onClick={() => onPatch(code, { causeId: cause.id })}
+                  className={`rounded-lg px-3 py-2.5 text-left text-sm font-bold ${
+                    chosen
+                      ? 'bg-brand-action text-content-invert'
+                      : 'border border-line bg-surface-page text-content-secondary'
+                  }`}
+                >
+                  {cause.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
