@@ -11,7 +11,7 @@ import type { Profile } from './types';
  * supervisor's list.
  */
 
-export type Entity = 'areas' | 'vans' | 'drivers' | 'causes';
+export type Entity = 'areas' | 'vans' | 'drivers' | 'causes' | 'actions';
 
 const requireText = (value: unknown, field: string): string => {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -94,11 +94,21 @@ const buildCauseRow = (payload: Payload): Payload => {
   };
 };
 
+/**
+ * Global rather than per check: "reported to workshop" means the same
+ * thing whichever check failed.
+ */
+const buildActionRow = (payload: Payload): Payload => ({
+  label: requireText(payload.label, 'Action'),
+  sort_order: typeof payload.sortOrder === 'number' ? payload.sortOrder : 50,
+});
+
 const BUILDERS: Record<Entity, (payload: Payload) => Payload> = {
   areas: buildAreaRow,
   vans: buildVanRow,
   drivers: buildDriverRow,
   causes: buildCauseRow,
+  actions: buildActionRow,
 };
 
 const audit = async (
@@ -241,6 +251,15 @@ const findBlockers = async (entity: Entity, id: string): Promise<Blocker[]> => {
     }
   }
 
+  if (entity === 'actions') {
+    const used = await countRows('inspection_results', 'action_id', id);
+    if (used > 0) {
+      blockers.push({
+        reason: `it has been recorded on ${used} failed check${used === 1 ? '' : 's'}`,
+      });
+    }
+  }
+
   if (entity === 'causes') {
     const used = await countRows('inspection_results', 'cause_id', id);
     if (used > 0) {
@@ -277,6 +296,7 @@ const LABELS: Record<Entity, string> = {
   vans: 'van',
   drivers: 'person',
   causes: 'cause',
+  actions: 'action',
 };
 
 export const deleteRecord = async (
