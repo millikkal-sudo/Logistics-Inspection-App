@@ -7,6 +7,7 @@ import {
   type StaffDraft,
   type VanDraft,
 } from '@/lib/bulkImport';
+import { fetchSheetCsv, SheetError } from '@/lib/googleSheet';
 import { ValidationError } from '@/lib/inspectionRepository';
 import { currentProfile, ForbiddenError, requireRole, UnauthorizedError } from '@/lib/session';
 
@@ -30,13 +31,21 @@ export const POST = async (request: Request): Promise<NextResponse> => {
 
     const payload = body as Record<string, unknown>;
     const entity = payload.entity;
-    const text = payload.text;
     const commit = payload.commit === true;
 
     if (entity !== 'vans' && entity !== 'drivers') {
       throw new ValidationError('entity must be vans or drivers');
     }
-    if (typeof text !== 'string' || text.trim() === '') {
+
+    // Either pasted rows or a Google Sheets link. The sheet is fetched
+    // again on commit rather than trusting what the client sends back,
+    // so an edit between preview and import is still validated.
+    const sheetUrl = typeof payload.sheetUrl === 'string' ? payload.sheetUrl.trim() : '';
+    const pasted = typeof payload.text === 'string' ? payload.text : '';
+
+    const text = sheetUrl === '' ? pasted : await fetchSheetCsv(sheetUrl);
+
+    if (text.trim() === '') {
       throw new ValidationError('Nothing to import');
     }
 
@@ -61,6 +70,9 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     }
     if (cause instanceof ForbiddenError) {
       return NextResponse.json({ error: cause.message }, { status: 403 });
+    }
+    if (cause instanceof SheetError) {
+      return NextResponse.json({ error: cause.message }, { status: 422 });
     }
     if (cause instanceof ValidationError) {
       return NextResponse.json({ error: cause.message }, { status: 422 });
