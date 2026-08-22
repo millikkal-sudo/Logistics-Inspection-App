@@ -1,5 +1,5 @@
 import { serviceClient } from './supabaseClients';
-import type { Area, CauseCategory, CheckCause, Driver, Van } from './types';
+import type { Area, CauseCategory, CheckAction, CheckCause, Driver, Van } from './types';
 
 export type FleetEntry = {
   vanId: string;
@@ -199,6 +199,29 @@ export const listCauses = async (includeInactive = false): Promise<CheckCause[]>
     checkItemId: row.check_item_id,
     label: row.label,
     category: row.category,
+    sortOrder: row.sort_order,
+    active: row.active,
+  }));
+};
+
+export const listActions = async (includeInactive = false): Promise<CheckAction[]> => {
+  let query = serviceClient()
+    .from('check_actions')
+    .select('id, label, sort_order, active')
+    .order('sort_order');
+
+  if (!includeInactive) {
+    query = query.eq('active', true);
+  }
+
+  const { data, error } = await query;
+  if (error !== null) {
+    throw new Error(`Could not load the action options: ${error.message}`);
+  }
+
+  return (data ?? []).map((row: { id: string; label: string; sort_order: number; active: boolean }) => ({
+    id: row.id,
+    label: row.label,
     sortOrder: row.sort_order,
     active: row.active,
   }));
