@@ -1,330 +1,499 @@
-'use client';
-
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { serviceClient } from './supabaseClients';
+import { listAreas, listDrivers, listVans } from './fleetRepository';
+import type { Profile } from './types';
 
 /**
- * Paste from a spreadsheet or pick a CSV, preview what will happen, then
- * commit. Nothing is written until the preview has been seen.
+ * Bulk import for vans and staff.
+ *
+ * Every import is validated and previewed before anything is written.
+ * Loading eighty rows blind and finding out afterwards that half went to
+ * the wrong emirate is the failure this exists to prevent.
  */
 
-type Issue = { line: number; input: string; reason: string };
+export type RowIssue = { line: number; input: string; reason: string };
 
-type VanDraft = { line: number; plate: string; areaName: string };
-type StaffDraft = {
+export type VanDraft = { line: number; plate: string; areaId: string; areaName: string };
+
+export type StaffDraft = {
   line: number;
   fullName: string;
   staffRole: 'driver' | 'helper';
+  areaId: string | null;
   areaName: string;
+  vanId: string | null;
   plate: string;
   partnerName: string;
 };
 
-type PreviewResult = {
-  valid: (VanDraft | StaffDraft)[];
-  issues: Issue[];
-  imported?: number;
-};
+export type Preview<T> = { valid: T[]; issues: RowIssue[] };
 
-type Column = { key: string; label: string; note: string };
+/**
+ * Handles both comma and tab delimiters, quoted fields, CRLF, and the
+ * BOM Excel writes at the start of a CSV. Pasting straight out of a
+ * spreadsheet gives tabs; a saved file gives commas.
+ */
+export const parseDelimited = (text: string): { cells: string[]; line: number }[] => {
+  const clean = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  const rows: { cells: string[]; line: number }[] = [];
 
-const SCHEMA: Record<'vans' | 'drivers', { heading: string; columns: Column[] }> = {
-  vans: {
-    heading: 'Bulk add vans',
-    columns: [
-      { key: 'plate', label: 'plate', note: 'DXB-12345' },
-      { key: 'area', label: 'area', note: 'the emirate' },
-    ],
-  },
-  drivers: {
-    heading: 'Bulk add drivers and helpers',
-    columns: [
-      { key: 'name', label: 'name', note: 'full name' },
-      { key: 'area', label: 'area', note: 'drivers only' },
-      { key: 'van', label: 'van', note: 'drivers only, optional' },
-      { key: 'rides with', label: 'rides with', note: 'helpers only, the driver name' },
-    ],
-  },
-};
+  let cell = '';
+  let cells: string[] = [];
+  let inQuotes = false;
+  let line = 1;
+  let startLine = 1;
 
-const isStaff = (draft: VanDraft | StaffDraft): draft is StaffDraft => 'fullName' in draft;
-
-export const BulkImport = ({
-  entity,
-  areaNames,
-  samplePlate,
-  onImported,
-}: {
-  entity: 'vans' | 'drivers';
-  areaNames: string[];
-  samplePlate: string;
-  onImported: () => void;
-}) => {
-  const schema = SCHEMA[entity];
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState('');
-  const [result, setResult] = useState<PreviewResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const firstArea = areaNames[0] ?? 'Dubai';
-
-  // Built from the real areas and a real plate, so the example cannot
-  // suggest a value the import would then reject.
-  const templateCsv =
-    entity === 'vans'
-      ? `plate,area\n${samplePlate},${firstArea}\nDXB-99001,${areaNames[1] ?? firstArea}\n`
-      : `name,area,van,rides with\nRashid Al Mansoori,${firstArea},${samplePlate},\nJoseph Fernandes,,,Rashid Al Mansoori\n`;
-
-  const downloadTemplate = (): void => {
-    const blob = new Blob([templateCsv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `calo-${entity}-template.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const pushCell = (): void => {
+    cells.push(cell.trim());
+    cell = '';
   };
 
-  const call = useCallback(
-    async (commit: boolean, source: string): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/admin/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity, text: source, commit }),
-      });
-
-      const body: unknown = await response.json();
-
-      if (!response.ok) {
-        const message =
-          typeof body === 'object' && body !== null && 'error' in body
-            ? String((body as { error: unknown }).error)
-            : 'Import failed';
-        setError(message);
-        return;
-      }
-
-      setResult(body as PreviewResult);
-
-      if (commit) {
-        setText('');
-        onImported();
-      }
-    } catch {
-      setError('Could not reach the server');
-    } finally {
-      setBusy(false);
+  const pushRow = (): void => {
+    pushCell();
+    if (cells.some((value) => value !== '')) {
+      rows.push({ cells, line: startLine });
     }
-  },
-    [entity, onImported],
-  );
-
-  // Previewing automatically. Requiring a Preview click before the
-  // Import button appeared meant that after choosing a file nothing
-  // actionable was on screen, which read as the button being missing.
-  useEffect(() => {
-    if (text.trim() === '') {
-      setResult(null);
-      return;
-    }
-    const timer = setTimeout(() => {
-      void call(false, text);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [text, call]);
-
-  const readFile = (file: File): void => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      setText(String(reader.result));
-    };
-    reader.readAsText(file);
+    cells = [];
+    startLine = line + 1;
   };
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-sm border border-line bg-surface-card px-4 py-2.5 text-sm font-bold text-brand"
-      >
-        Bulk import
-      </button>
-    );
+  for (let i = 0; i < clean.length; i += 1) {
+    const char = clean[i];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (clean[i + 1] === '"') {
+          cell += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cell += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === ',' || char === '\t') {
+      pushCell();
+    } else if (char === '\n') {
+      pushRow();
+      line += 1;
+    } else {
+      cell += char;
+    }
   }
 
-  return (
-    <div className="rounded-md border border-line bg-surface-card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-bold text-content">{schema.heading}</h2>
-          <p className="mt-0.5 text-xs text-content-secondary">
-            Paste from a spreadsheet or choose a CSV. Keep the header row and the column order
-            does not matter.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            setOpen(false);
-            setResult(null);
-            setError(null);
-          }}
-          className="text-xs font-bold text-content-secondary"
-        >
-          Close
-        </button>
-      </div>
+  if (cell !== '' || cells.length > 0) {
+    pushRow();
+  }
 
-      <div className="mt-3 overflow-hidden rounded-sm border border-line">
-        <div className="bg-surface-page px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-content-secondary">
-          Columns
-        </div>
-        {schema.columns.map((column) => (
-          <div
-            key={column.key}
-            className="flex items-baseline gap-3 border-t border-line px-3 py-1.5 text-xs"
-          >
-            <span className="w-24 shrink-0 font-mono font-bold text-content">{column.label}</span>
-            <span className="text-content-secondary">{column.note}</span>
-          </div>
-        ))}
-        <div className="border-t border-line bg-surface-page px-3 py-2 text-[11px] text-content-secondary">
-          Areas must match exactly: {areaNames.length === 0 ? 'none set up yet' : areaNames.join(', ')}
-        </div>
-      </div>
+  return rows;
+};
 
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        rows={6}
-        placeholder={templateCsv}
-        className="mt-3 w-full resize-y rounded-sm border border-line bg-surface-page p-3 font-mono text-xs text-content outline-none"
-      />
+/**
+ * Maps a header row onto known fields so column order does not matter
+ * and extra columns are ignored.
+ *
+ * Reading purely by position was the original bug: a sheet with the
+ * columns swapped imported plates into the area field without complaint.
+ */
+const HEADER_ALIASES: Record<string, string[]> = {
+  plate: ['plate', 'van', 'van plate', 'plate no', 'plate number', 'registration'],
+  area: ['area', 'emirate', 'location', 'city'],
+  name: ['name', 'full name', 'driver', 'driver name', 'staff', 'person'],
+  role: ['role', 'type', 'staff role', 'driver or helper'],
+  van: ['van', 'plate', 'van plate', 'assigned van'],
+  partner: ['rides with', 'rides_with', 'partner', 'driver', 'works with', 'paired with'],
+};
 
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".csv,.tsv,.txt,text/csv"
-        className="hidden"
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file !== undefined) {
-            readFile(file);
-          }
-        }}
-      />
+type ColumnMap = Record<string, number>;
 
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={downloadTemplate}
-          className="rounded-sm border border-line px-4 py-2 text-xs font-bold text-brand"
-        >
-          Download template
-        </button>
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="rounded-sm border border-line px-4 py-2 text-xs font-bold text-content"
-        >
-          Choose a file
-        </button>
-        {result !== null && result.valid.length > 0 && result.imported === undefined && (
-          <button
-            type="button"
-            onClick={() => void call(true, text)}
-            disabled={busy}
-            className="rounded-sm bg-pass px-6 py-2 text-xs font-bold text-content-invert"
-          >
-            Import {result.valid.length} row{result.valid.length === 1 ? '' : 's'}
-          </button>
-        )}
+const normalise = (value: string): string => value.trim().toLowerCase();
 
-        {busy && <span className="text-xs text-content-secondary">Checking…</span>}
+const buildColumnMap = (
+  headerCells: string[],
+  fields: string[],
+): ColumnMap | null => {
+  const map: ColumnMap = {};
 
-        {!busy && result !== null && result.valid.length === 0 && result.imported === undefined && (
-          <span className="text-xs font-bold text-fail">Nothing to import yet</span>
-        )}
-      </div>
+  headerCells.forEach((cell, index) => {
+    const cleaned = cell.trim().toLowerCase();
+    for (const field of fields) {
+      if (map[field] !== undefined) {
+        continue;
+      }
+      if ((HEADER_ALIASES[field] ?? []).includes(cleaned)) {
+        map[field] = index;
+        break;
+      }
+    }
+  });
 
-      {error !== null && (
-        <div className="mt-3 rounded-sm bg-fail-soft p-3 text-sm font-medium text-fail">{error}</div>
-      )}
+  // A header row is only believable if it names at least two fields.
+  // One match is more likely a data row that happens to say "Dubai".
+  return Object.keys(map).length >= 2 ? map : null;
+};
 
-      {result !== null && (
-        <div className="mt-4 space-y-3">
-          {result.imported !== undefined && (
-            <div className="rounded-sm bg-pass-soft p-3 text-sm font-bold text-pass">
-              Imported {result.imported} row{result.imported === 1 ? '' : 's'}.
-            </div>
-          )}
+type Table = { rows: { cells: string[]; line: number }[]; columns: ColumnMap };
 
-          {result.valid.length > 0 && result.imported === undefined && (
-            <div className="overflow-hidden rounded-sm border border-line">
-              <div className="bg-pass-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-pass">
-                {result.valid.length} ready to import
-              </div>
-              <div className="max-h-48 overflow-y-auto">
-                {result.valid.map((draft) => (
-                  <div
-                    key={draft.line}
-                    className="flex items-center gap-3 border-b border-line px-3 py-2 text-xs last:border-b-0"
-                  >
-                    <span className="w-8 text-content-secondary">{draft.line}</span>
-                    {isStaff(draft) ? (
-                      <span className="text-content">
-                        <span className="font-bold">{draft.fullName}</span>{' '}
-                        <span className="text-content-secondary">
-                          {draft.staffRole}
-                          {draft.areaName === '' ? '' : ` · ${draft.areaName}`}
-                          {draft.plate === '' ? '' : ` · ${draft.plate}`}
-                          {draft.partnerName === '' ? '' : ` · with ${draft.partnerName}`}
-                        </span>
-                      </span>
-                    ) : (
-                      <span className="text-content">
-                        <span className="font-bold">{draft.plate}</span>{' '}
-                        <span className="text-content-secondary">{draft.areaName}</span>
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+/**
+ * Falls back to a documented positional order when there is no header,
+ * so a bare paste still works.
+ */
+const readTable = (
+  text: string,
+  fields: string[],
+  positional: ColumnMap,
+): Table => {
+  const parsed = parseDelimited(text);
+  const first = parsed[0];
 
-          {result.issues.length > 0 && (
-            <div className="overflow-hidden rounded-sm border border-line">
-              <div className="bg-fail-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-fail">
-                {result.issues.length} row{result.issues.length === 1 ? '' : 's'} skipped
-              </div>
-              <div className="max-h-48 overflow-y-auto">
-                {result.issues.map((issue) => (
-                  <div
-                    key={`${issue.line}-${issue.reason}`}
-                    className="border-b border-line px-3 py-2 text-xs last:border-b-0"
-                  >
-                    <span className="mr-2 text-content-secondary">Line {issue.line}</span>
-                    <span className="font-bold text-fail">{issue.reason}</span>
-                    <div className="mt-0.5 truncate font-mono text-[11px] text-content-secondary">
-                      {issue.input}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="border-t border-line px-3 py-2 text-[11px] text-content-secondary">
-                Skipped rows are not imported. Fix them in your sheet and paste again.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+  if (first !== undefined) {
+    const mapped = buildColumnMap(first.cells, fields);
+    if (mapped !== null) {
+      return { rows: parsed.slice(1), columns: mapped };
+    }
+  }
+  return { rows: parsed, columns: positional };
+};
+
+const cellAt = (cells: string[], columns: ColumnMap, field: string): string =>
+  columns[field] === undefined ? '' : (cells[columns[field]] ?? '').trim();
+
+/** Lists what would have been accepted, so a typo is self-correcting. */
+const validList = (values: string[]): string =>
+  values.length === 0 ? 'none configured' : values.join(', ');
+
+export const previewVans = async (text: string): Promise<Preview<VanDraft>> => {
+  const areas = await listAreas(true);
+  const existing = await listVans(true);
+
+  const { rows, columns } = readTable(text, ['plate', 'area'], { plate: 0, area: 1 });
+
+  const valid: VanDraft[] = [];
+  const issues: RowIssue[] = [];
+  const seen = new Set<string>();
+  const areaNames = areas.map((area) => area.name);
+
+  for (const row of rows) {
+    const raw = row.cells.join(', ');
+    const plate = cellAt(row.cells, columns, 'plate').toUpperCase();
+    const areaText = cellAt(row.cells, columns, 'area');
+
+    if (plate === '') {
+      issues.push({ line: row.line, input: raw, reason: 'No plate' });
+      continue;
+    }
+
+    const area = areas.find(
+      (candidate) =>
+        normalise(candidate.name) === normalise(areaText) ||
+        normalise(candidate.code) === normalise(areaText),
+    );
+
+    if (area === undefined) {
+      issues.push({
+        line: row.line,
+        input: raw,
+        reason:
+          areaText === ''
+            ? `No area given. Use one of: ${validList(areaNames)}`
+            : `Unknown area "${areaText}". Use one of: ${validList(areaNames)}`,
+      });
+      continue;
+    }
+    if (existing.some((van) => van.plate === plate)) {
+      issues.push({ line: row.line, input: raw, reason: 'Plate already exists' });
+      continue;
+    }
+    if (seen.has(plate)) {
+      issues.push({ line: row.line, input: raw, reason: 'Duplicate plate in this file' });
+      continue;
+    }
+
+    seen.add(plate);
+    valid.push({ line: row.line, plate, areaId: area.id, areaName: area.name });
+  }
+
+  return { valid, issues };
+};
+
+/**
+ * Staff import.
+ *
+ * The role column is optional: anyone with a driver named in "rides
+ * with" is a helper. Requiring the word "helper" alongside two blank
+ * columns was the most error prone part of the original format.
+ */
+export const previewStaff = async (text: string): Promise<Preview<StaffDraft>> => {
+  const [areas, vans, staff] = await Promise.all([
+    listAreas(true),
+    listVans(true),
+    listDrivers(true),
+  ]);
+
+  const { rows, columns } = readTable(
+    text,
+    ['name', 'role', 'area', 'van', 'partner'],
+    { name: 0, role: 1, area: 2, van: 3, partner: 4 },
   );
+
+  const valid: StaffDraft[] = [];
+  const issues: RowIssue[] = [];
+  const areaNames = areas.map((area) => area.name);
+
+  const isHelper = (cells: string[]): boolean =>
+    normalise(cellAt(cells, columns, 'role')) === 'helper' ||
+    cellAt(cells, columns, 'partner') !== '';
+
+  // Two passes: a helper may name a driver that appears later in the
+  // same file, so drivers are resolved first.
+  const driverRows = rows.filter((row) => !isHelper(row.cells));
+  const helperRows = rows.filter((row) => isHelper(row.cells));
+
+  const takenVans = new Set(
+    staff.filter((person) => person.defaultVanId !== null).map((person) => person.defaultVanId),
+  );
+
+  for (const row of driverRows) {
+    const raw = row.cells.join(', ');
+    const fullName = cellAt(row.cells, columns, 'name');
+    const areaText = cellAt(row.cells, columns, 'area');
+    const plateText = cellAt(row.cells, columns, 'van').toUpperCase();
+
+    if (fullName === '') {
+      issues.push({ line: row.line, input: raw, reason: 'No name' });
+      continue;
+    }
+
+    const area = areas.find(
+      (candidate) =>
+        normalise(candidate.name) === normalise(areaText) ||
+        normalise(candidate.code) === normalise(areaText),
+    );
+    if (area === undefined) {
+      issues.push({
+        line: row.line,
+        input: raw,
+        reason:
+          areaText === ''
+            ? `No area given. Use one of: ${validList(areaNames)}`
+            : `Unknown area "${areaText}". Use one of: ${validList(areaNames)}`,
+      });
+      continue;
+    }
+
+    let vanId: string | null = null;
+    if (plateText !== '') {
+      const van = vans.find((candidate) => candidate.plate === plateText);
+      if (van === undefined) {
+        const inArea = vans
+          .filter((candidate) => candidate.areaId === area.id && candidate.active)
+          .map((candidate) => candidate.plate);
+        issues.push({
+          line: row.line,
+          input: raw,
+          reason: `Unknown van "${plateText}". Vans in ${area.name}: ${validList(inArea)}`,
+        });
+        continue;
+      }
+      if (van.areaId !== area.id) {
+        issues.push({
+          line: row.line,
+          input: raw,
+          reason: `${plateText} is not in ${area.name}`,
+        });
+        continue;
+      }
+      if (takenVans.has(van.id)) {
+        issues.push({ line: row.line, input: raw, reason: `${plateText} already has a driver` });
+        continue;
+      }
+      takenVans.add(van.id);
+      vanId = van.id;
+    }
+
+    valid.push({
+      line: row.line,
+      fullName,
+      staffRole: 'driver',
+      areaId: area.id,
+      areaName: area.name,
+      vanId,
+      plate: plateText,
+      partnerName: '',
+    });
+  }
+
+  const pairedDrivers = new Set(
+    staff.filter((person) => person.staffRole === 'helper').map((person) => person.partnerId),
+  );
+  const claimed = new Set<string>();
+
+  for (const row of helperRows) {
+    const raw = row.cells.join(', ');
+    const fullName = cellAt(row.cells, columns, 'name');
+    const partnerName = cellAt(row.cells, columns, 'partner');
+
+    if (fullName === '') {
+      issues.push({ line: row.line, input: raw, reason: 'No name' });
+      continue;
+    }
+    if (partnerName === '') {
+      issues.push({
+        line: row.line,
+        input: raw,
+        reason: 'A helper must name their driver in the "rides with" column',
+      });
+      continue;
+    }
+
+    const fromFile = valid.find(
+      (draft) =>
+        draft.staffRole === 'driver' && normalise(draft.fullName) === normalise(partnerName),
+    );
+    const fromDb = staff.find(
+      (person) =>
+        person.staffRole === 'driver' && normalise(person.fullName) === normalise(partnerName),
+    );
+
+    if (fromFile === undefined && fromDb === undefined) {
+      issues.push({
+        line: row.line,
+        input: raw,
+        reason: `No driver called "${partnerName}". Add them in this same file, or check the spelling.`,
+      });
+      continue;
+    }
+    if (fromDb !== undefined && pairedDrivers.has(fromDb.id)) {
+      issues.push({ line: row.line, input: raw, reason: `${partnerName} already has a helper` });
+      continue;
+    }
+    // Two helpers naming the same driver inside one file would both pass
+    // the database check above and then collide on insert.
+    if (claimed.has(normalise(partnerName))) {
+      issues.push({
+        line: row.line,
+        input: raw,
+        reason: `${partnerName} is already given a helper earlier in this file`,
+      });
+      continue;
+    }
+    claimed.add(normalise(partnerName));
+
+    valid.push({
+      line: row.line,
+      fullName,
+      staffRole: 'helper',
+      areaId: fromFile?.areaId ?? fromDb?.areaId ?? null,
+      areaName: fromFile?.areaName ?? '',
+      vanId: fromFile?.vanId ?? fromDb?.defaultVanId ?? null,
+      plate: fromFile?.plate ?? '',
+      partnerName,
+    });
+  }
+
+  return { valid: valid.sort((a, b) => a.line - b.line), issues };
+};
+
+const audit = async (actor: Profile, action: string, count: number): Promise<void> => {
+  await serviceClient().from('audit_log').insert({
+    actor_id: actor.id,
+    action,
+    entity: 'bulk_import',
+    after: { rows: count },
+  });
+};
+
+export const importVans = async (drafts: VanDraft[], actor: Profile): Promise<number> => {
+  if (drafts.length === 0) {
+    return 0;
+  }
+
+  const { error } = await serviceClient()
+    .from('vans')
+    .insert(
+      drafts.map((draft) => ({
+        plate: draft.plate,
+        area_id: draft.areaId,
+        temp_min_c: 0,
+        temp_max_c: 5,
+      })),
+    );
+
+  if (error !== null) {
+    throw new Error(`Import failed: ${error.message}`);
+  }
+
+  await audit(actor, 'vans.bulk_imported', drafts.length);
+  return drafts.length;
+};
+
+export const importStaff = async (drafts: StaffDraft[], actor: Profile): Promise<number> => {
+  const db = serviceClient();
+  const drivers = drafts.filter((draft) => draft.staffRole === 'driver');
+  const helpers = drafts.filter((draft) => draft.staffRole === 'helper');
+
+  const nameToId = new Map<string, string>();
+
+  if (drivers.length > 0) {
+    const { data, error } = await db
+      .from('drivers')
+      .insert(
+        drivers.map((draft) => ({
+          full_name: draft.fullName,
+          staff_role: 'driver',
+          partner_id: null,
+          area_id: draft.areaId,
+          default_van: draft.vanId,
+        })),
+      )
+      .select('id, full_name');
+
+    if (error !== null || data === null) {
+      throw new Error(`Driver import failed: ${error?.message ?? 'unknown'}`);
+    }
+    for (const row of data as { id: string; full_name: string }[]) {
+      nameToId.set(normalise(row.full_name), row.id);
+    }
+  }
+
+  if (helpers.length > 0) {
+    // Drivers already in the database are not in nameToId, so look up
+    // anything the first pass did not create.
+    const existing = await listDrivers(true);
+    for (const person of existing) {
+      if (person.staffRole === 'driver' && !nameToId.has(normalise(person.fullName))) {
+        nameToId.set(normalise(person.fullName), person.id);
+      }
+    }
+
+    const rows = helpers.flatMap((draft) => {
+      const partnerId = nameToId.get(normalise(draft.partnerName));
+      if (partnerId === undefined) {
+        return [];
+      }
+      return [
+        {
+          full_name: draft.fullName,
+          staff_role: 'helper',
+          partner_id: partnerId,
+          area_id: draft.areaId,
+          default_van: draft.vanId,
+        },
+      ];
+    });
+
+    if (rows.length > 0) {
+      const { error } = await db.from('drivers').insert(rows);
+      if (error !== null) {
+        throw new Error(`Helper import failed: ${error.message}`);
+      }
+    }
+  }
+
+  await audit(actor, 'drivers.bulk_imported', drafts.length);
+  return drafts.length;
 };
