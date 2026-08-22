@@ -8,6 +8,7 @@ import {
   resolveStatus,
   type Area,
   type CheckAnswer,
+  type CheckAction,
   type CheckCause,
   type CheckItem,
   type InspectionStatus,
@@ -21,6 +22,7 @@ type Answer = {
   numericValue?: number;
   note?: string;
   causeId?: string;
+  actionId?: string;
   photoKey?: string;
   photoPreview?: string;
   uploading?: boolean;
@@ -57,6 +59,7 @@ type Props = {
   fleet: FleetEntry[];
   checkItems: CheckItem[];
   causes: CheckCause[];
+  actions: CheckAction[];
   initialToday: InspectionSummary[];
   canManage: boolean;
 };
@@ -67,6 +70,7 @@ export const VanCheckApp = ({
   fleet,
   checkItems,
   causes,
+  actions,
   initialToday,
   canManage,
 }: Props) => {
@@ -104,14 +108,12 @@ export const VanCheckApp = ({
 
   const answeredCount = checkItems.filter((item) => merged[item.code]?.passed !== undefined).length;
   const failures = checkItems.filter((item) => merged[item.code]?.passed === false);
+  // Only the cause blocks a submission, and only where the check has
+  // options configured. Photo, action and note are optional.
   const incomplete = failures.filter((item) => {
     const answer = merged[item.code];
     const causeNeeded = causes.some((cause) => cause.checkItemId === item.id);
-    return (
-      answer?.photoKey === undefined ||
-      (answer.note ?? '').trim() === '' ||
-      (causeNeeded && answer.causeId === undefined)
-    );
+    return causeNeeded && answer?.causeId === undefined;
   });
   const uploading = Object.values(merged).some((answer) => answer.uploading === true);
   const ready = answeredCount === checkItems.length && incomplete.length === 0 && !uploading;
@@ -159,6 +161,7 @@ export const VanCheckApp = ({
         numericValue: answer.numericValue,
         note: answer.note,
         causeId: answer.causeId,
+        actionId: answer.actionId,
         photoKey: answer.photoKey,
       };
     });
@@ -271,6 +274,7 @@ export const VanCheckApp = ({
             tempMin={tempMin}
             tempMax={tempMax}
             causes={causes}
+            actions={actions}
             notes={notes}
             onNotes={setNotes}
             training={training}
@@ -548,6 +552,7 @@ const Checklist = ({
   tempMin,
   tempMax,
   causes,
+  actions,
   notes,
   onNotes,
   training,
@@ -574,6 +579,7 @@ const Checklist = ({
   tempMin: number;
   tempMax: number;
   causes: CheckCause[];
+  actions: CheckAction[];
   notes: string;
   onNotes: (value: string) => void;
   training: TrainingFlag;
@@ -599,7 +605,7 @@ const Checklist = ({
   } else if (answeredCount < checkItems.length) {
     label = `${checkItems.length - answeredCount} left to check`;
   } else if (incompleteCount > 0) {
-    label = `Complete ${incompleteCount} failed item${incompleteCount > 1 ? 's' : ''}`;
+    label = `Pick a cause for ${incompleteCount} failed item${incompleteCount > 1 ? 's' : ''}`;
   }
 
   return (
@@ -725,6 +731,7 @@ const Checklist = ({
                   code={item.code}
                   answer={answer}
                   causes={causes.filter((cause) => cause.checkItemId === item.id)}
+                  actions={actions}
                   onPatch={onPatch}
                   onError={onError}
                 />
@@ -793,6 +800,7 @@ const Evidence = ({
   code,
   answer,
   causes,
+  actions,
   onPatch,
   onError,
 }: {
@@ -800,10 +808,12 @@ const Evidence = ({
   code: string;
   answer: Answer;
   causes: CheckCause[];
+  actions: CheckAction[];
   onPatch: (code: string, values: Answer) => void;
   onError: (message: string) => void;
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [noteOpen, setNoteOpen] = useState(answer.note !== undefined && answer.note !== '');
 
   const handleFile = async (file: File): Promise<void> => {
     onPatch(code, { uploading: true, photoPreview: URL.createObjectURL(file) });
@@ -817,10 +827,62 @@ const Evidence = ({
   };
 
   return (
-    <div className="mt-3 space-y-2 border-t border-dashed border-line pt-3">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-fail">
-        Evidence required
-      </div>
+    <div className="mt-3 space-y-3 border-t border-dashed border-line pt-3">
+      {/* The one required field. Everything below is optional, so this
+          comes first rather than last. */}
+      {causes.length > 0 && (
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-fail">
+            What caused this?
+          </div>
+          <div className="mt-2 grid gap-1.5">
+            {causes.map((cause) => (
+              <button
+                key={cause.id}
+                type="button"
+                onClick={() => onPatch(code, { causeId: cause.id })}
+                className={`rounded-lg px-3 py-2.5 text-left text-sm font-bold ${
+                  answer.causeId === cause.id
+                    ? 'bg-brand-action text-content-invert'
+                    : 'border border-line bg-surface-page text-content-secondary'
+                }`}
+              >
+                {cause.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tells a held van from a fixed one. Without it the two look
+          identical in the record. */}
+      {actions.length > 0 && (
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-content-secondary">
+            What was done? <span className="font-normal normal-case">Optional</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {actions.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                onClick={() =>
+                  onPatch(code, {
+                    actionId: answer.actionId === action.id ? undefined : action.id,
+                  })
+                }
+                className={`rounded-full px-3 py-2 text-xs font-bold ${
+                  answer.actionId === action.id
+                    ? 'bg-brand-action text-content-invert'
+                    : 'border border-line bg-surface-page text-content-secondary'
+                }`}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <input
         ref={inputRef}
@@ -837,72 +899,73 @@ const Evidence = ({
       />
 
       {answer.photoPreview === undefined ? (
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          className="w-full rounded-lg bg-fail-soft py-3 text-sm font-bold text-fail"
-        >
-          Take photo
-        </button>
-      ) : (
-        <div className="relative">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={answer.photoPreview}
-            alt="Evidence"
-            className="h-36 w-full rounded-lg object-cover"
-          />
-          {answer.uploading === true && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-scrim text-sm font-bold text-content-invert">
-              Uploading…
-            </div>
-          )}
-          {answer.uploading !== true && (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="flex-1 rounded-lg border border-line bg-surface-page py-2.5 text-sm font-bold text-content-secondary"
+          >
+            Add photo
+          </button>
+          {!noteOpen && (
             <button
               type="button"
-              onClick={() => onPatch(code, { photoKey: undefined, photoPreview: undefined })}
-              aria-label="Remove photo"
-              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-scrim-strong text-content-invert"
+              onClick={() => setNoteOpen(true)}
+              className="flex-1 rounded-lg border border-line bg-surface-page py-2.5 text-sm font-bold text-content-secondary"
             >
-              ✗
+              Add a note
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={answer.photoPreview}
+              alt="Evidence"
+              className="h-36 w-full rounded-lg object-cover"
+            />
+            {answer.uploading === true && (
+              <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-scrim text-sm font-bold text-content-invert">
+                Uploading…
+              </div>
+            )}
+            {answer.uploading !== true && (
+              <button
+                type="button"
+                onClick={() => onPatch(code, { photoKey: undefined, photoPreview: undefined })}
+                aria-label="Remove photo"
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-scrim-strong text-content-invert"
+              >
+                ✗
+              </button>
+            )}
+          </div>
+          {!noteOpen && (
+            <button
+              type="button"
+              onClick={() => setNoteOpen(true)}
+              className="w-full rounded-lg border border-line bg-surface-page py-2.5 text-sm font-bold text-content-secondary"
+            >
+              Add a note
             </button>
           )}
         </div>
       )}
 
-      <textarea
-        value={answer.note ?? ''}
-        onChange={(event) => onPatch(code, { note: event.target.value })}
-        placeholder="What is wrong, and what did you do about it?"
-        rows={2}
-        className="w-full resize-none rounded-lg border border-line bg-surface-page p-3 text-sm text-content outline-none"
-      />
-
-      {causes.length > 0 && (
-        <div className="pt-1">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-content-secondary">
-            What caused this?
-          </div>
-          <div className="mt-2 grid gap-1.5">
-            {causes.map((cause) => {
-              const chosen = answer.causeId === cause.id;
-              return (
-                <button
-                  key={cause.id}
-                  type="button"
-                  onClick={() => onPatch(code, { causeId: cause.id })}
-                  className={`rounded-lg px-3 py-2.5 text-left text-sm font-bold ${
-                    chosen
-                      ? 'bg-brand-action text-content-invert'
-                      : 'border border-line bg-surface-page text-content-secondary'
-                  }`}
-                >
-                  {cause.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+      {/* Kept reachable rather than removed: options cannot capture
+          "compressor grinding since Tuesday", and that sentence is often
+          the most useful thing in the record. */}
+      {noteOpen && (
+        <textarea
+          value={answer.note ?? ''}
+          onChange={(event) => onPatch(code, { note: event.target.value })}
+          placeholder="Anything the options above do not cover"
+          rows={2}
+          autoFocus
+          className="w-full resize-none rounded-lg border border-line bg-surface-page p-3 text-sm text-content outline-none"
+        />
       )}
     </div>
   );
