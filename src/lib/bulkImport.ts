@@ -3,34 +3,37 @@ import { listAreas, listDrivers, listVans } from './fleetRepository';
 import type { Profile } from './types';
 
 /**
- * Bulk import for vans and staff.
+ * Fleet import: one row is a van, its driver, and optionally its helper.
  *
- * Every import is validated and previewed before anything is written.
- * Loading eighty rows blind and finding out afterwards that half went to
- * the wrong emirate is the failure this exists to prevent.
+ * Importing vans and staff separately meant a helper had to name a
+ * driver who had to name a van, across two files, in the right order.
+ * A van, its driver and its helper are one fact in the yard, so they are
+ * one row here.
+ *
+ * Nothing is written until the preview has been seen.
  */
 
 export type RowIssue = { line: number; input: string; reason: string };
 
-export type VanDraft = { line: number; plate: string; areaId: string; areaName: string };
-
-export type StaffDraft = {
+export type FleetDraft = {
   line: number;
-  fullName: string;
-  staffRole: 'driver' | 'helper';
-  areaId: string | null;
-  areaName: string;
-  vanId: string | null;
   plate: string;
-  partnerName: string;
+  areaId: string;
+  areaName: string;
+  /** Set when the van already exists and is being reused. */
+  existingVanId: string | null;
+  driverName: string;
+  helperName: string;
 };
 
-export type Preview<T> = { valid: T[]; issues: RowIssue[] };
+export type Preview = { valid: FleetDraft[]; issues: RowIssue[] };
+
+const normalise = (value: string): string => value.trim().toLowerCase();
 
 /**
- * Handles both comma and tab delimiters, quoted fields, CRLF, and the
- * BOM Excel writes at the start of a CSV. Pasting straight out of a
- * spreadsheet gives tabs; a saved file gives commas.
+ * Handles comma and tab delimiters, quoted fields, CRLF, and the BOM a
+ * spreadsheet writes. Pasting from Google Sheets gives tabs; an export
+ * gives commas.
  */
 export const parseDelimited = (text: string): { cells: string[]; line: number }[] => {
   const clean = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
@@ -93,178 +96,86 @@ export const parseDelimited = (text: string): { cells: string[]; line: number }[
 };
 
 /**
- * Maps a header row onto known fields so column order does not matter
- * and extra columns are ignored.
- *
- * Reading purely by position was the original bug: a sheet with the
- * columns swapped imported plates into the area field without complaint.
+ * Maps a header row onto known fields so column order does not matter.
+ * Reading purely by position meant a sheet with columns swapped imported
+ * plates into the area field without complaint.
  */
-const HEADER_ALIASES: Record<string, string[]> = {
-  plate: ['plate', 'van', 'van plate', 'plate no', 'plate number', 'registration'],
+const ALIASES: Record<string, string[]> = {
+  plate: ['plate', 'van', 'van plate', 'plate no', 'plate number', 'registration', 'vehicle'],
   area: ['area', 'emirate', 'location', 'city'],
-  name: ['name', 'full name', 'driver', 'driver name', 'staff', 'person'],
-  role: ['role', 'type', 'staff role', 'driver or helper'],
-  van: ['van', 'plate', 'van plate', 'assigned van'],
-  partner: ['rides with', 'rides_with', 'partner', 'driver', 'works with', 'paired with'],
+  driver: ['driver', 'driver name', 'name', 'full name'],
+  helper: ['helper', 'helper name', 'assistant', 'rides with', 'partner'],
 };
+
+const FIELDS = ['plate', 'area', 'driver', 'helper'];
 
 type ColumnMap = Record<string, number>;
 
-const normalise = (value: string): string => value.trim().toLowerCase();
-
-const buildColumnMap = (
-  headerCells: string[],
-  fields: string[],
-): ColumnMap | null => {
+const buildColumnMap = (headerCells: string[]): ColumnMap | null => {
   const map: ColumnMap = {};
 
   headerCells.forEach((cell, index) => {
-    const cleaned = cell.trim().toLowerCase();
-    for (const field of fields) {
-      if (map[field] !== undefined) {
-        continue;
-      }
-      if ((HEADER_ALIASES[field] ?? []).includes(cleaned)) {
+    const cleaned = normalise(cell);
+    for (const field of FIELDS) {
+      if (map[field] === undefined && (ALIASES[field] ?? []).includes(cleaned)) {
         map[field] = index;
         break;
       }
     }
   });
 
-  // A header row is only believable if it names at least two fields.
-  // One match is more likely a data row that happens to say "Dubai".
+  // One match is more likely a data row that happens to read "Dubai".
   return Object.keys(map).length >= 2 ? map : null;
 };
 
-type Table = { rows: { cells: string[]; line: number }[]; columns: ColumnMap };
+const POSITIONAL: ColumnMap = { plate: 0, area: 1, driver: 2, helper: 3 };
 
-/**
- * Falls back to a documented positional order when there is no header,
- * so a bare paste still works.
- */
-const readTable = (
-  text: string,
-  fields: string[],
-  positional: ColumnMap,
-): Table => {
-  const parsed = parseDelimited(text);
-  const first = parsed[0];
-
-  if (first !== undefined) {
-    const mapped = buildColumnMap(first.cells, fields);
-    if (mapped !== null) {
-      return { rows: parsed.slice(1), columns: mapped };
-    }
-  }
-  return { rows: parsed, columns: positional };
+const cellAt = (cells: string[], columns: ColumnMap, field: string): string => {
+  const index = columns[field];
+  return index === undefined ? '' : (cells[index] ?? '').trim();
 };
 
-const cellAt = (cells: string[], columns: ColumnMap, field: string): string =>
-  columns[field] === undefined ? '' : (cells[columns[field]] ?? '').trim();
-
-/** Lists what would have been accepted, so a typo is self-correcting. */
-const validList = (values: string[]): string =>
+const listOf = (values: string[]): string =>
   values.length === 0 ? 'none configured' : values.join(', ');
 
-export const previewVans = async (text: string): Promise<Preview<VanDraft>> => {
-  const areas = await listAreas(true);
-  const existing = await listVans(true);
-
-  const { rows, columns } = readTable(text, ['plate', 'area'], { plate: 0, area: 1 });
-
-  const valid: VanDraft[] = [];
-  const issues: RowIssue[] = [];
-  const seen = new Set<string>();
-  const areaNames = areas.map((area) => area.name);
-
-  for (const row of rows) {
-    const raw = row.cells.join(', ');
-    const plate = cellAt(row.cells, columns, 'plate').toUpperCase();
-    const areaText = cellAt(row.cells, columns, 'area');
-
-    if (plate === '') {
-      issues.push({ line: row.line, input: raw, reason: 'No plate' });
-      continue;
-    }
-
-    const area = areas.find(
-      (candidate) =>
-        normalise(candidate.name) === normalise(areaText) ||
-        normalise(candidate.code) === normalise(areaText),
-    );
-
-    if (area === undefined) {
-      issues.push({
-        line: row.line,
-        input: raw,
-        reason:
-          areaText === ''
-            ? `No area given. Use one of: ${validList(areaNames)}`
-            : `Unknown area "${areaText}". Use one of: ${validList(areaNames)}`,
-      });
-      continue;
-    }
-    if (existing.some((van) => van.plate === plate)) {
-      issues.push({ line: row.line, input: raw, reason: 'Plate already exists' });
-      continue;
-    }
-    if (seen.has(plate)) {
-      issues.push({ line: row.line, input: raw, reason: 'Duplicate plate in this file' });
-      continue;
-    }
-
-    seen.add(plate);
-    valid.push({ line: row.line, plate, areaId: area.id, areaName: area.name });
-  }
-
-  return { valid, issues };
-};
-
-/**
- * Staff import.
- *
- * The role column is optional: anyone with a driver named in "rides
- * with" is a helper. Requiring the word "helper" alongside two blank
- * columns was the most error prone part of the original format.
- */
-export const previewStaff = async (text: string): Promise<Preview<StaffDraft>> => {
+export const previewFleet = async (text: string): Promise<Preview> => {
   const [areas, vans, staff] = await Promise.all([
     listAreas(true),
     listVans(true),
     listDrivers(true),
   ]);
 
-  const { rows, columns } = readTable(
-    text,
-    ['name', 'role', 'area', 'van', 'partner'],
-    { name: 0, role: 1, area: 2, van: 3, partner: 4 },
-  );
+  const parsed = parseDelimited(text);
+  const first = parsed[0];
+  const headerMap = first === undefined ? null : buildColumnMap(first.cells);
+  const rows = headerMap === null ? parsed : parsed.slice(1);
+  const columns = headerMap ?? POSITIONAL;
 
-  const valid: StaffDraft[] = [];
+  const valid: FleetDraft[] = [];
   const issues: RowIssue[] = [];
+
   const areaNames = areas.map((area) => area.name);
-
-  const isHelper = (cells: string[]): boolean =>
-    normalise(cellAt(cells, columns, 'role')) === 'helper' ||
-    cellAt(cells, columns, 'partner') !== '';
-
-  // Two passes: a helper may name a driver that appears later in the
-  // same file, so drivers are resolved first.
-  const driverRows = rows.filter((row) => !isHelper(row.cells));
-  const helperRows = rows.filter((row) => isHelper(row.cells));
+  const seenPlates = new Set<string>();
+  const seenNames = new Set<string>();
 
   const takenVans = new Set(
     staff.filter((person) => person.defaultVanId !== null).map((person) => person.defaultVanId),
   );
+  const existingNames = new Set(staff.map((person) => normalise(person.fullName)));
 
-  for (const row of driverRows) {
+  for (const row of rows) {
     const raw = row.cells.join(', ');
-    const fullName = cellAt(row.cells, columns, 'name');
+    const plate = cellAt(row.cells, columns, 'plate').toUpperCase();
     const areaText = cellAt(row.cells, columns, 'area');
-    const plateText = cellAt(row.cells, columns, 'van').toUpperCase();
+    const driverName = cellAt(row.cells, columns, 'driver');
+    const helperName = cellAt(row.cells, columns, 'helper');
 
-    if (fullName === '') {
-      issues.push({ line: row.line, input: raw, reason: 'No name' });
+    if (plate === '') {
+      issues.push({ line: row.line, input: raw, reason: 'No plate' });
+      continue;
+    }
+    if (driverName === '') {
+      issues.push({ line: row.line, input: raw, reason: 'No driver name' });
       continue;
     }
 
@@ -279,221 +190,169 @@ export const previewStaff = async (text: string): Promise<Preview<StaffDraft>> =
         input: raw,
         reason:
           areaText === ''
-            ? `No area given. Use one of: ${validList(areaNames)}`
-            : `Unknown area "${areaText}". Use one of: ${validList(areaNames)}`,
+            ? `No area given. Use one of: ${listOf(areaNames)}`
+            : `Unknown area "${areaText}". Use one of: ${listOf(areaNames)}`,
       });
       continue;
     }
 
-    let vanId: string | null = null;
-    if (plateText !== '') {
-      const van = vans.find((candidate) => candidate.plate === plateText);
-      if (van === undefined) {
-        const inArea = vans
-          .filter((candidate) => candidate.areaId === area.id && candidate.active)
-          .map((candidate) => candidate.plate);
+    if (seenPlates.has(plate)) {
+      issues.push({ line: row.line, input: raw, reason: 'This plate appears twice in the file' });
+      continue;
+    }
+
+    // An existing van is reused rather than rejected, so a row can add a
+    // driver to a van that is already on the system.
+    const existing = vans.find((van) => van.plate === plate);
+    if (existing !== undefined) {
+      if (existing.areaId !== area.id) {
         issues.push({
           line: row.line,
           input: raw,
-          reason: `Unknown van "${plateText}". Vans in ${area.name}: ${validList(inArea)}`,
+          reason: `${plate} already exists in a different area`,
         });
         continue;
       }
-      if (van.areaId !== area.id) {
-        issues.push({
-          line: row.line,
-          input: raw,
-          reason: `${plateText} is not in ${area.name}`,
-        });
+      if (takenVans.has(existing.id)) {
+        issues.push({ line: row.line, input: raw, reason: `${plate} already has a driver` });
         continue;
       }
-      if (takenVans.has(van.id)) {
-        issues.push({ line: row.line, input: raw, reason: `${plateText} already has a driver` });
-        continue;
-      }
-      takenVans.add(van.id);
-      vanId = van.id;
+    }
+
+    const clash = [driverName, helperName]
+      .filter((name) => name !== '')
+      .find((name) => existingNames.has(normalise(name)) || seenNames.has(normalise(name)));
+
+    if (clash !== undefined) {
+      issues.push({
+        line: row.line,
+        input: raw,
+        reason: `${clash} is already on the system. Use a different name, or add them from the Drivers tab.`,
+      });
+      continue;
+    }
+
+    seenPlates.add(plate);
+    seenNames.add(normalise(driverName));
+    if (helperName !== '') {
+      seenNames.add(normalise(helperName));
     }
 
     valid.push({
       line: row.line,
-      fullName,
-      staffRole: 'driver',
+      plate,
       areaId: area.id,
       areaName: area.name,
-      vanId,
-      plate: plateText,
-      partnerName: '',
+      existingVanId: existing?.id ?? null,
+      driverName,
+      helperName,
     });
   }
 
-  const pairedDrivers = new Set(
-    staff.filter((person) => person.staffRole === 'helper').map((person) => person.partnerId),
-  );
-  const claimed = new Set<string>();
-
-  for (const row of helperRows) {
-    const raw = row.cells.join(', ');
-    const fullName = cellAt(row.cells, columns, 'name');
-    const partnerName = cellAt(row.cells, columns, 'partner');
-
-    if (fullName === '') {
-      issues.push({ line: row.line, input: raw, reason: 'No name' });
-      continue;
-    }
-    if (partnerName === '') {
-      issues.push({
-        line: row.line,
-        input: raw,
-        reason: 'A helper must name their driver in the "rides with" column',
-      });
-      continue;
-    }
-
-    const fromFile = valid.find(
-      (draft) =>
-        draft.staffRole === 'driver' && normalise(draft.fullName) === normalise(partnerName),
-    );
-    const fromDb = staff.find(
-      (person) =>
-        person.staffRole === 'driver' && normalise(person.fullName) === normalise(partnerName),
-    );
-
-    if (fromFile === undefined && fromDb === undefined) {
-      issues.push({
-        line: row.line,
-        input: raw,
-        reason: `No driver called "${partnerName}". Add them in this same file, or check the spelling.`,
-      });
-      continue;
-    }
-    if (fromDb !== undefined && pairedDrivers.has(fromDb.id)) {
-      issues.push({ line: row.line, input: raw, reason: `${partnerName} already has a helper` });
-      continue;
-    }
-    // Two helpers naming the same driver inside one file would both pass
-    // the database check above and then collide on insert.
-    if (claimed.has(normalise(partnerName))) {
-      issues.push({
-        line: row.line,
-        input: raw,
-        reason: `${partnerName} is already given a helper earlier in this file`,
-      });
-      continue;
-    }
-    claimed.add(normalise(partnerName));
-
-    valid.push({
-      line: row.line,
-      fullName,
-      staffRole: 'helper',
-      areaId: fromFile?.areaId ?? fromDb?.areaId ?? null,
-      areaName: fromFile?.areaName ?? '',
-      vanId: fromFile?.vanId ?? fromDb?.defaultVanId ?? null,
-      plate: fromFile?.plate ?? '',
-      partnerName,
-    });
-  }
-
-  return { valid: valid.sort((a, b) => a.line - b.line), issues };
+  return { valid, issues };
 };
 
-const audit = async (actor: Profile, action: string, count: number): Promise<void> => {
-  await serviceClient().from('audit_log').insert({
-    actor_id: actor.id,
-    action,
-    entity: 'bulk_import',
-    after: { rows: count },
-  });
-};
-
-export const importVans = async (drafts: VanDraft[], actor: Profile): Promise<number> => {
+export const importFleet = async (drafts: FleetDraft[], actor: Profile): Promise<number> => {
   if (drafts.length === 0) {
     return 0;
   }
 
-  const { error } = await serviceClient()
-    .from('vans')
-    .insert(
-      drafts.map((draft) => ({
-        plate: draft.plate,
-        area_id: draft.areaId,
-        temp_min_c: 0,
-        temp_max_c: 5,
-      })),
-    );
-
-  if (error !== null) {
-    throw new Error(`Import failed: ${error.message}`);
-  }
-
-  await audit(actor, 'vans.bulk_imported', drafts.length);
-  return drafts.length;
-};
-
-export const importStaff = async (drafts: StaffDraft[], actor: Profile): Promise<number> => {
   const db = serviceClient();
-  const drivers = drafts.filter((draft) => draft.staffRole === 'driver');
-  const helpers = drafts.filter((draft) => draft.staffRole === 'helper');
 
-  const nameToId = new Map<string, string>();
+  // 1. New vans. Rows reusing an existing van are skipped here.
+  const newVans = drafts.filter((draft) => draft.existingVanId === null);
+  const plateToId = new Map<string, string>();
 
-  if (drivers.length > 0) {
+  if (newVans.length > 0) {
     const { data, error } = await db
-      .from('drivers')
+      .from('vans')
       .insert(
-        drivers.map((draft) => ({
-          full_name: draft.fullName,
-          staff_role: 'driver',
-          partner_id: null,
+        newVans.map((draft) => ({
+          plate: draft.plate,
           area_id: draft.areaId,
-          default_van: draft.vanId,
+          temp_min_c: 0,
+          temp_max_c: 5,
         })),
       )
-      .select('id, full_name');
+      .select('id, plate');
 
     if (error !== null || data === null) {
-      throw new Error(`Driver import failed: ${error?.message ?? 'unknown'}`);
+      throw new Error(`Van import failed: ${error?.message ?? 'unknown'}`);
     }
-    for (const row of data as { id: string; full_name: string }[]) {
-      nameToId.set(normalise(row.full_name), row.id);
+    for (const row of data as { id: string; plate: string }[]) {
+      plateToId.set(row.plate, row.id);
     }
   }
 
-  if (helpers.length > 0) {
-    // Drivers already in the database are not in nameToId, so look up
-    // anything the first pass did not create.
-    const existing = await listDrivers(true);
-    for (const person of existing) {
-      if (person.staffRole === 'driver' && !nameToId.has(normalise(person.fullName))) {
-        nameToId.set(normalise(person.fullName), person.id);
-      }
+  for (const draft of drafts) {
+    if (draft.existingVanId !== null) {
+      plateToId.set(draft.plate, draft.existingVanId);
     }
+  }
 
-    const rows = helpers.flatMap((draft) => {
-      const partnerId = nameToId.get(normalise(draft.partnerName));
+  // 2. Drivers, each attached to their van.
+  const { data: driverRows, error: driverError } = await db
+    .from('drivers')
+    .insert(
+      drafts.map((draft) => ({
+        full_name: draft.driverName,
+        staff_role: 'driver',
+        partner_id: null,
+        area_id: draft.areaId,
+        default_van: plateToId.get(draft.plate) ?? null,
+      })),
+    )
+    .select('id, full_name');
+
+  if (driverError !== null || driverRows === null) {
+    throw new Error(`Driver import failed: ${driverError?.message ?? 'unknown'}`);
+  }
+
+  const nameToId = new Map(
+    (driverRows as { id: string; full_name: string }[]).map((row) => [
+      normalise(row.full_name),
+      row.id,
+    ]),
+  );
+
+  // 3. Helpers, paired to the driver from the same row and sharing the
+  //    same van, so a pair cannot drift onto different vehicles.
+  const helperRows = drafts
+    .filter((draft) => draft.helperName !== '')
+    .flatMap((draft) => {
+      const partnerId = nameToId.get(normalise(draft.driverName));
       if (partnerId === undefined) {
         return [];
       }
       return [
         {
-          full_name: draft.fullName,
+          full_name: draft.helperName,
           staff_role: 'helper',
           partner_id: partnerId,
           area_id: draft.areaId,
-          default_van: draft.vanId,
+          default_van: plateToId.get(draft.plate) ?? null,
         },
       ];
     });
 
-    if (rows.length > 0) {
-      const { error } = await db.from('drivers').insert(rows);
-      if (error !== null) {
-        throw new Error(`Helper import failed: ${error.message}`);
-      }
+  if (helperRows.length > 0) {
+    const { error } = await db.from('drivers').insert(helperRows);
+    if (error !== null) {
+      throw new Error(`Helper import failed: ${error.message}`);
     }
   }
 
-  await audit(actor, 'drivers.bulk_imported', drafts.length);
+  await db.from('audit_log').insert({
+    actor_id: actor.id,
+    action: 'fleet.bulk_imported',
+    entity: 'bulk_import',
+    after: {
+      rows: drafts.length,
+      vans: newVans.length,
+      drivers: drafts.length,
+      helpers: helperRows.length,
+    },
+  });
+
   return drafts.length;
 };
