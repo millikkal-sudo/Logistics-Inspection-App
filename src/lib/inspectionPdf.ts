@@ -379,6 +379,18 @@ const drawEvidence = async (
       );
       cursor.y -= 12;
 
+      if (failure.actionLabel !== null) {
+        cursor = ensure(doc, cursor, 12);
+        cursor.page.drawText(`Action: ${failure.actionLabel}`, {
+          x: MARGIN,
+          y: cursor.y,
+          size: 8,
+          font: fonts.bold,
+          color: MUTED,
+        });
+        cursor.y -= 11;
+      }
+
       if (failure.note !== null && failure.note !== '') {
         for (const line of wrap(failure.note, fonts.regular, 8, CONTENT_WIDTH)) {
           cursor = ensure(doc, cursor, 12);
