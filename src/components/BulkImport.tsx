@@ -63,6 +63,8 @@ export const BulkImport = ({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'sheet' | 'paste'>('sheet');
+  const [sheetUrl, setSheetUrl] = useState('');
   const [text, setText] = useState('');
   const [result, setResult] = useState<PreviewResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -88,14 +90,14 @@ export const BulkImport = ({
   };
 
   const call = useCallback(
-    async (commit: boolean, source: string): Promise<void> => {
+    async (commit: boolean, source: string, url: string): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
       const response = await fetch('/api/admin/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity, text: source, commit }),
+        body: JSON.stringify({ entity, text: source, sheetUrl: url, commit }),
       });
 
       const body: unknown = await response.json();
@@ -128,15 +130,14 @@ export const BulkImport = ({
   // Import button appeared meant that after choosing a file nothing
   // actionable was on screen, which read as the button being missing.
   useEffect(() => {
-    if (text.trim() === '') {
-      setResult(null);
+    if (mode !== 'paste' || text.trim() === '') {
       return;
     }
     const timer = setTimeout(() => {
-      void call(false, text);
+      void call(false, text, '');
     }, 500);
     return () => clearTimeout(timer);
-  }, [text, call]);
+  }, [mode, text, call]);
 
   const readFile = (file: File): void => {
     const reader = new FileReader();
@@ -199,13 +200,64 @@ export const BulkImport = ({
         </div>
       </div>
 
+      <div className="mt-3 flex gap-2">
+        {(['sheet', 'paste'] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => {
+              setMode(option);
+              setResult(null);
+              setError(null);
+            }}
+            className={`rounded-full px-4 py-2 text-xs font-bold ${
+              mode === option
+                ? 'bg-brand-action text-content-invert'
+                : 'border border-line bg-surface-page text-content-secondary'
+            }`}
+          >
+            {option === 'sheet' ? 'Google Sheet link' : 'Paste rows'}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'sheet' ? (
+        <div className="mt-3 space-y-2">
+          <input
+            value={sheetUrl}
+            onChange={(event) => {
+              setSheetUrl(event.target.value);
+              setResult(null);
+            }}
+            placeholder="https://docs.google.com/spreadsheets/d/..."
+            className="w-full rounded-sm border border-line bg-surface-page p-3 font-mono text-xs text-content outline-none"
+          />
+          <p className="text-xs text-content-secondary">
+            In Google Sheets open Share, set General access to &ldquo;Anyone with the link&rdquo;,
+            then paste the link here. Set it back to Restricted once the import is done: while it
+            is open, anyone holding the link can read the sheet.
+          </p>
+          <button
+            type="button"
+            onClick={() => void call(false, '', sheetUrl)}
+            disabled={busy || sheetUrl.trim() === ''}
+            className="rounded-sm bg-brand-action px-5 py-2 text-xs font-bold text-content-invert disabled:bg-disabled disabled:text-content-secondary"
+          >
+            {busy ? 'Reading the sheet…' : 'Read the sheet'}
+          </button>
+        </div>
+      ) : (
       <textarea
         value={text}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          setText(event.target.value);
+          setResult(null);
+        }}
         rows={6}
         placeholder={templateCsv}
         className="mt-3 w-full resize-y rounded-sm border border-line bg-surface-page p-3 font-mono text-xs text-content outline-none"
       />
+      )}
 
       <input
         ref={fileRef}
@@ -228,17 +280,19 @@ export const BulkImport = ({
         >
           Download template
         </button>
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="rounded-sm border border-line px-4 py-2 text-xs font-bold text-content"
-        >
-          Choose a file
-        </button>
+        {mode === 'paste' && (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="rounded-sm border border-line px-4 py-2 text-xs font-bold text-content"
+          >
+            Choose a file
+          </button>
+        )}
         {result !== null && result.valid.length > 0 && result.imported === undefined && (
           <button
             type="button"
-            onClick={() => void call(true, text)}
+            onClick={() => void call(true, text, mode === 'sheet' ? sheetUrl : '')}
             disabled={busy}
             className="rounded-sm bg-pass px-6 py-2 text-xs font-bold text-content-invert"
           >
